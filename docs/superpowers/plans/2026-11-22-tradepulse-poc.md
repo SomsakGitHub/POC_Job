@@ -16,7 +16,7 @@
 - Money: every price and amount is `Int64` satang (1 THB = 100 satang). No `Double`/`Decimal` in domain or wire; format only at the UI edge.
 - Market rules (simulation parameters modelled on SET, not claims of rule accuracy): board lot 100; price band ±30% of reference; max order 10,000,000 shares; starting cash ฿1,000,000 = `100_000_000` satang; commission 15 bps. Orders are Market or Limit (Day); the simulation has no session close, so a Limit order rests until it is filled, cancelled or the server resets.
 - Real protocols only: market data = WebSocket `/ws/market` (Protobuf binary `Tp_MarketFrame` + JSON text control); orders = gRPC `tp.OrderService`; reference/history/account = REST JSON. Fakes exist only in unit tests, never in the app.
-- Ports: REST + WebSocket `8080`, gRPC `50051`; `0` means ephemeral in tests. The app reads the host from env `TRADEPULSE_HOST` (default `127.0.0.1`).
+- Ports: REST + WebSocket `18080`, gRPC `18051` (not the usual 8080/50051: a Jenkins already listens on 127.0.0.1:8080 on the author's Mac, ruling R19); `0` means ephemeral in tests. The app reads the host from env `TRADEPULSE_HOST` (default `127.0.0.1`).
 - Timing constants: gRPC deadline 2 s (≤ 3 attempts, same `client_order_id`); WebSocket watchdog 5 s of silence; market data older than 3 s blocks order submit; server sends an empty heartbeat frame after 1 s idle; frame batching ≤ 5 ms; event log keeps 10,000 events; default 20 updates/s/symbol over 12 symbols; stress mode ≥ 5,000 updates/s aggregate.
 - Data policy: market data is conflated (latest-wins) and the UI redraws at most once per display frame; order and ledger events are never dropped or reordered.
 - UI copy: label "SIMULATED DATA" on every screen that shows prices; no Kasikorn name, logo or branding anywhere in the app; UI text English, company names Thai. Light and dark mode both supported (system semantic colors only; up/down are distinguishable by sign and arrow, not color alone); no third-party branding.
@@ -145,7 +145,7 @@ service OrderService {
 **Interfaces:**
 - Produces:
 ```swift
-public struct ServerConfig: Sendable { public var host = "127.0.0.1"; public var restPort = 8080; public var grpcPort = 50051; public var seed: UInt64 = 42; public init() }
+public struct ServerConfig: Sendable { public var host = "127.0.0.1"; public var restPort = 18080; public var grpcPort = 18051; public var seed: UInt64 = 42; public init() }
 public struct BoundPorts: Sendable { public let rest: Int; public let grpc: Int }
 public final class ExchangeServerApp: Sendable { public init(config: ServerConfig); public func run() async throws; public func waitUntilListening() async -> BoundPorts }
 public struct SkeletonProbe: Sendable { public init(host: String, restPort: Int, grpcPort: Int)
@@ -501,7 +501,7 @@ public actor MarketHub {
 - [ ] **Step 1: Write failing tests with the raw generated client:** `submitMarketBuyAcceptedAndStreamed` (stream from 0 yields accepted, fill, ledgerEntry with consecutive `eventSeq` and the same `serverEpoch`); `duplicateSubmitSameResponse` (same `orderID`, one `accepted` event); `unspecifiedSideIsInvalidArgument`; `businessRejectIsNotRpcError` (quantity 150 → `accepted == false`, `rejectReason == .invalidLot`); `streamResumesFromSeq`; `streamOutOfRangeStatus` (server `eventLogCapacity` 10, 25 events, `fromEventSeq` 2 → `outOfRange`); `resetEndsStream`; `timingIsOrdered` (`ackNs >= recvNs`).
 - [ ] **Step 2: Run `S --filter GrpcOrderTests`.** Expected: FAIL.
 - [ ] **Step 3: Implement the service and conversions, remove the skeleton gRPC handler and `SkeletonTests`, and make `main.swift` accept `--rest-port`, `--grpc-port`, `--seed`, `--event-log-capacity`, `--commission-bps` and print `listening rest=<p> grpc=<p>`.**
-- [ ] **Step 4: Run `S`.** Expected: all server tests PASS. Then `make server` in the background and `curl -s localhost:8080/healthz` → `{"status":"ok",…}`.
+- [ ] **Step 4: Run `S`.** Expected: all server tests PASS. Then `make server` in the background and `curl -s localhost:18080/healthz` → `{"status":"ok",…}`.
 - [ ] **Step 5: Checkpoint.** Commit per Global Constraints: `feat: gRPC OrderService and server executable`.
 
 ---
@@ -520,7 +520,7 @@ public actor MarketHub {
 ```swift
 public struct ClientConfig: Sendable { public var host: String; public var restPort: Int; public var grpcPort: Int
   public var authToken: String?   // v1 seam: sent as `authorization: Bearer <token>` by all three clients when non-nil; the server ignores it
-  public init(host: String = "127.0.0.1", restPort: Int = 8080, grpcPort: Int = 50051, authToken: String? = nil)
+  public init(host: String = "127.0.0.1", restPort: Int = 18080, grpcPort: Int = 18051, authToken: String? = nil)
   public var restBase: URL { get }; public var webSocketURL: URL { get }
   public static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) -> ClientConfig }   // TRADEPULSE_HOST, TRADEPULSE_REST_PORT, TRADEPULSE_GRPC_PORT, TRADEPULSE_TOKEN
 public enum RestError: Error, Equatable { case http(status: Int), decoding }
@@ -751,7 +751,7 @@ struct PositionRow: Identifiable { let id: UInt32 /* symbolId */; let ticker: St
 - [ ] **Step 2: Run `xcodebuild test`.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run `xcodebuild test`.** Expected: PASS.
-- [ ] **Step 5: Verify on the Simulator** (spec §3 rows 0:45 and 1:10). Buy 100 PTT at market → row `.filled`, cash down, position 100, transaction listed; place a limit well below the market → row stays `.accepted`; cancel it → `.cancelled`; submit quantity 150 → blocked with the lot message; stop the server → ticket disabled with a reason; restart it, then `curl -X POST localhost:8080/v1/admin/reset` → the Orders tab shows the server-restarted banner and no phantom rows. Expected: all as described, screenshots saved to `docs/results/screens/`.
+- [ ] **Step 5: Verify on the Simulator** (spec §3 rows 0:45 and 1:10). Buy 100 PTT at market → row `.filled`, cash down, position 100, transaction listed; place a limit well below the market → row stays `.accepted`; cancel it → `.cancelled`; submit quantity 150 → blocked with the lot message; stop the server → ticket disabled with a reason; restart it, then `curl -X POST localhost:18080/v1/admin/reset` → the Orders tab shows the server-restarted banner and no phantom rows. Expected: all as described, screenshots saved to `docs/results/screens/`.
 - [ ] **Step 6: Checkpoint.** Commit per Global Constraints: `feat: order ticket, orders and portfolio`.
 
 ### Task 21: Lab, latency HUD, reporter and lifecycle
