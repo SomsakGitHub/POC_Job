@@ -29,7 +29,9 @@ let package = Package(
         .target(
             name: "ExchangeServerKit",
             dependencies: [
+                "ExchangeCore",
                 .product(name: "Contracts", package: "TradeKit"),
+                .product(name: "TradeCore", package: "TradeKit"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
@@ -54,7 +56,10 @@ let package = Package(
         .testTarget(
             name: "ServerIntegrationTests",
             dependencies: [
+                "ExchangeCore",
                 "ExchangeServerKit",
+                .product(name: "Contracts", package: "TradeKit"),
+                .product(name: "TradeCore", package: "TradeKit"),
                 .product(name: "TradeNetworking", package: "TradeKit"),
                 .product(name: "ServiceLifecycleTestKit", package: "swift-service-lifecycle"),
             ]

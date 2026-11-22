@@ -1,4 +1,5 @@
 import Contracts
+import ExchangeCore
 import GRPCCore
 import GRPCNIOTransportHTTP2
 import Hummingbird
@@ -7,6 +8,7 @@ import Logging
 import ServiceLifecycle
 import SwiftProtobuf
 import Synchronization
+import TradeCore
 
 /// Ports the server actually bound (differs from `ServerConfig` when a port is `0`).
 public struct BoundPorts: Sendable {
@@ -14,19 +16,40 @@ public struct BoundPorts: Sendable {
     public let grpc: Int
 }
 
-/// The exchange server: REST + WebSocket (Hummingbird) and gRPC, run as services of one `ServiceGroup`.
+/// The exchange server: REST + WebSocket (Hummingbird) and gRPC, run with the market runner as services of one
+/// `ServiceGroup`.
 ///
-/// Skeleton behaviour (replaced in Tasks 11–13): `GET /healthz`, one fixed frame on `/ws/market`,
-/// and a `SubmitOrder` that always accepts with order id "skeleton".
+/// The REST routes and the market runner are real. The market feed (one fixed frame on `/ws/market`) and `SubmitOrder`
+/// (which always accepts, with order id "skeleton", and never reaches the engine) are still skeletons.
 public final class ExchangeServerApp: Sendable {
     private let config: ServerConfig
+    private let nowNs: @Sendable () -> Int64
     private let listening = Mutex(ListeningState())
 
-    public init(config: ServerConfig) {
-        self.config = config
+    /// The exchange the server fronts: the simulated market, the demo account and the order events. The REST routes,
+    /// the market runner and anything else that serves the exchange share this one engine.
+    public let engine: ExchangeEngine
+    /// The lab's settings, which the REST routes change and the market runner follows.
+    public let lab: LabControls
+
+    /// A server over the default symbols, with every clock reading taken from the wall clock.
+    public convenience init(config: ServerConfig) {
+        self.init(config: config, nowNs: WallClock.nowNs)
     }
 
-    /// Runs both servers until the calling task is cancelled or a server fails.
+    /// A server whose engine, routes and market runner all read `nowNs` (nanoseconds since the Unix epoch), so that a
+    /// test can say exactly what the time is.
+    init(config: ServerConfig, nowNs: @escaping @Sendable () -> Int64) {
+        self.config = config
+        self.nowNs = nowNs
+        engine = ExchangeEngine(
+            symbols: SymbolCatalog.defaultSymbols, seed: config.seed, nowNs: nowNs,
+            eventLogCapacity: config.eventLogCapacity, commissionBps: config.commissionBps
+        )
+        lab = LabControls()
+    }
+
+    /// Runs both servers and the market runner until the calling task is cancelled or a server fails.
     public func run() async throws {
         // Release `waitUntilListening()` callers even if a server never came up.
         defer { record { $0.stopped = true } }
@@ -38,7 +61,10 @@ public final class ExchangeServerApp: Sendable {
             onListening: { [self] port in self.record { $0.grpc = port } }
         )
 
-        let router = Self.makeRouter()
+        let rest = RestRoutes(engine: engine, lab: lab, nowNs: nowNs, dropConnections: { [engine] in
+            await engine.dropStreams()
+        })
+        let router = Self.makeRouter(rest: rest)
         let http = Application(
             router: router,
             server: .http1WebSocketUpgrade(webSocketRouter: router),
@@ -49,7 +75,9 @@ public final class ExchangeServerApp: Sendable {
             logger: logger
         )
 
-        let services = ServiceGroup(services: [http, grpc], logger: logger)
+        // The runner is last: a group shuts its services down in reverse order, so the market stops first.
+        let runner = MarketRunner(engine: engine, lab: lab, nowNs: nowNs)
+        let services = ServiceGroup(services: [http, grpc, runner], logger: logger)
         // The servers run in an unstructured task so that cancelling `run()` becomes a graceful
         // shutdown: cancelling Hummingbird directly drops connections and logs errors.
         let running = Task { try await services.run() }
@@ -82,7 +110,8 @@ public final class ExchangeServerApp: Sendable {
         return logger
     }
 
-    /// Applies `update`; once both ports are known (or `run()` has ended), resumes every pending `waitUntilListening()`.
+    /// Applies `update`; once both ports are known (or `run()` has ended), resumes every pending
+    /// `waitUntilListening()`.
     private func record(_ update: (inout ListeningState) -> Void) {
         let ready: (BoundPorts, [CheckedContinuation<BoundPorts, Never>])? = listening.withLock { state in
             update(&state)
@@ -95,9 +124,9 @@ public final class ExchangeServerApp: Sendable {
         for waiter in waiters { waiter.resume(returning: ports) }
     }
 
-    private static func makeRouter() -> Router<BasicWebSocketRequestContext> {
+    private static func makeRouter(rest: RestRoutes) -> Router<BasicWebSocketRequestContext> {
         let router = Router(context: BasicWebSocketRequestContext.self)
-        router.get("/healthz") { _, _ in HealthResponse(status: "ok") }
+        rest.add(to: router)
         router.ws("/ws/market") { inbound, outbound, _ in
             try await outbound.write(.binary(ByteBuffer(bytes: try skeletonFrame().serializedData())))
             for try await _ in inbound {}  // keep the socket open until the client closes it
@@ -129,17 +158,16 @@ private struct ListeningState {
     }
 }
 
-private struct HealthResponse: ResponseEncodable {
-    let status: String
-}
-
 /// Adapts `GRPCServer` to a `ServiceLifecycle.Service` and reports the port it bound.
 struct GRPCServerService: Service {
     private let transport: HTTP2ServerTransport.Posix
     private let server: GRPCServer<HTTP2ServerTransport.Posix>
     private let onListening: @Sendable (Int) -> Void
 
-    init(host: String, port: Int, services: [any RegistrableRPCService], onListening: @escaping @Sendable (Int) -> Void) {
+    init(
+        host: String, port: Int, services: [any RegistrableRPCService],
+        onListening: @escaping @Sendable (Int) -> Void
+    ) {
         transport = HTTP2ServerTransport.Posix(address: .ipv4(host: host, port: port), transportSecurity: .plaintext)
         server = GRPCServer(transport: transport, services: services)
         self.onListening = onListening
@@ -163,7 +191,7 @@ struct GRPCServerService: Service {
     }
 }
 
-/// Skeleton `tp.OrderService`; replaced by the real implementation in Task 13.
+/// Skeleton `tp.OrderService`: accepts every order under the id "skeleton" without passing it to the engine.
 private struct SkeletonOrderService: Tp_OrderService.SimpleServiceProtocol {
     func submitOrder(request: Tp_SubmitOrderRequest, context: ServerContext) async throws -> Tp_SubmitOrderResponse {
         var response = Tp_SubmitOrderResponse()
