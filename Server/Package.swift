@@ -19,6 +19,13 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.17.2"),
     ],
     targets: [
+        // Pure Swift exchange core: the simulated market, matching, ledger and engine. No I/O, no clock, no networking.
+        .target(
+            name: "ExchangeCore",
+            dependencies: [
+                .product(name: "TradeCore", package: "TradeKit"),
+            ]
+        ),
         .target(
             name: "ExchangeServerKit",
             dependencies: [
@@ -36,6 +43,13 @@ let package = Package(
         .executableTarget(
             name: "ExchangeServer",
             dependencies: ["ExchangeServerKit"]
+        ),
+        .testTarget(
+            name: "ExchangeCoreTests",
+            dependencies: [
+                "ExchangeCore",
+                .product(name: "TradeCore", package: "TradeKit"),
+            ]
         ),
         .testTarget(
             name: "ServerIntegrationTests",
