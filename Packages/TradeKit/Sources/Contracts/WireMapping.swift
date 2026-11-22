@@ -71,3 +71,35 @@ extension RejectReason {
         }
     }
 }
+
+// A candle against the generated `Tp_Candle`.
+//
+// A plain field-for-field copy: prices are `int64` satang on the wire and `Price` in the domain, so every value is
+// valid and the mapping is total in both directions (no `init?`). It checks nothing: a frame whose high is below its
+// low maps as it is, and judging it is the caller's call. It has no notion of "absent" either. A candle field the
+// sender left out of a message reads from the generated getter as an all-zero `Tp_Candle`, which maps to an all-zero
+// candle; callers check `Tp_SymbolUpdate.hasCandle1S` (and the like) first.
+
+extension Candle {
+    public init(wire: Tp_Candle) {
+        self.init(
+            openTimeMs: wire.openTimeMs,
+            open: Price(satang: wire.open),
+            high: Price(satang: wire.high),
+            low: Price(satang: wire.low),
+            close: Price(satang: wire.close),
+            volume: wire.volume
+        )
+    }
+
+    public var wire: Tp_Candle {
+        var message = Tp_Candle()
+        message.openTimeMs = openTimeMs
+        message.open = open.satang
+        message.high = high.satang
+        message.low = low.satang
+        message.close = close.satang
+        message.volume = volume
+        return message
+    }
+}
