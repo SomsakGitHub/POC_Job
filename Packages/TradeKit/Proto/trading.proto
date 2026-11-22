@@ -1,0 +1,30 @@
+syntax = "proto3";
+package tp;
+enum Side { SIDE_UNSPECIFIED = 0; SIDE_BUY = 1; SIDE_SELL = 2; }
+enum OrderType { ORDER_TYPE_UNSPECIFIED = 0; ORDER_TYPE_MARKET = 1; ORDER_TYPE_LIMIT = 2; }
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED = 0; REJECT_REASON_INVALID_QUANTITY = 1; REJECT_REASON_INVALID_LOT = 2;
+  REJECT_REASON_INVALID_TICK = 3; REJECT_REASON_OUTSIDE_PRICE_BAND = 4; REJECT_REASON_INSUFFICIENT_FUNDS = 5;
+  REJECT_REASON_INSUFFICIENT_POSITION = 6; REJECT_REASON_UNKNOWN_SYMBOL = 7; REJECT_REASON_NO_LIQUIDITY = 8;
+  REJECT_REASON_INVALID_DUPLICATE = 9;
+}
+message SubmitOrderRequest { string client_order_id = 1; uint32 symbol_id = 2; Side side = 3; OrderType type = 4; int64 quantity = 5; int64 limit_price = 6; }
+message ServerTiming { int64 recv_ns = 1; int64 ack_ns = 2; }
+message SubmitOrderResponse { bool accepted = 1; string order_id = 2; RejectReason reject_reason = 3; ServerTiming timing = 4; }
+message CancelOrderRequest { string order_id = 1; }
+message CancelOrderResponse { bool cancelled = 1; }
+message StreamOrderEventsRequest { uint64 from_event_seq = 1; string client_epoch = 2; }   // events with event_seq > from_event_seq
+message OrderAccepted { string order_id = 1; string client_order_id = 2; uint32 symbol_id = 3; Side side = 4; OrderType type = 5; int64 quantity = 6; int64 limit_price = 7; }
+message OrderRejected { string client_order_id = 1; RejectReason reason = 2; }
+message OrderFill { string order_id = 1; uint32 symbol_id = 2; Side side = 3; int64 quantity = 4; int64 price = 5; int64 remaining = 6; }
+message OrderCancelled { string order_id = 1; int64 remaining = 2; RejectReason reason = 3; }
+message LedgerEntry { uint64 ledger_seq = 1; string order_id = 2; uint32 symbol_id = 3; Side side = 4; int64 quantity = 5; int64 price = 6; int64 commission = 7; int64 cash_delta = 8; int64 cash_after = 9; int64 position_after = 10; int64 ts_ns = 11; }
+message OrderEvent {
+  uint64 event_seq = 1; string server_epoch = 2; int64 server_ts_ns = 3;
+  oneof event { OrderAccepted accepted = 10; OrderRejected rejected = 11; OrderFill fill = 12; OrderCancelled cancelled = 13; LedgerEntry ledger_entry = 14; }
+}
+service OrderService {
+  rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc StreamOrderEvents(StreamOrderEventsRequest) returns (stream OrderEvent);
+}
