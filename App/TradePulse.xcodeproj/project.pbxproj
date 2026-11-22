@@ -208,7 +208,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.tradepulse.poc.TradePulseTests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TradePulse.app/TradePulse";
 			};
 			name = Debug;
@@ -226,7 +226,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.tradepulse.poc.TradePulse;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -243,7 +243,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.tradepulse.poc.TradePulse;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -301,7 +301,6 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -366,7 +365,6 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -382,7 +380,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.tradepulse.poc.TradePulseTests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TradePulse.app/TradePulse";
 			};
 			name = Release;
