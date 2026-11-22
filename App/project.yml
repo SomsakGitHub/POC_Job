@@ -1,0 +1,62 @@
+name: TradePulse
+options:
+  bundleIdPrefix: dev.tradepulse.poc
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    TARGETED_DEVICE_FAMILY: "1"
+packages:
+  TradeKit:
+    path: ../Packages/TradeKit
+targets:
+  TradePulse:
+    type: application
+    platform: iOS
+    sources:
+      - TradePulse
+    dependencies:
+      - package: TradeKit
+        product: TradeNetworking
+      - package: TradeKit
+        product: Contracts
+    info:
+      path: TradePulse/Info.plist
+      properties:
+        CFBundleDisplayName: TradePulse
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tradepulse.poc.TradePulse
+        GENERATE_INFOPLIST_FILE: false
+  TradePulseTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - TradePulseTests
+    dependencies:
+      - target: TradePulse
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tradepulse.poc.TradePulseTests
+        GENERATE_INFOPLIST_FILE: true
+schemes:
+  TradePulse:
+    build:
+      targets:
+        TradePulse: all
+        TradePulseTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - TradePulseTests
