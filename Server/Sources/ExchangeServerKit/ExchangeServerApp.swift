@@ -3,6 +3,7 @@ import GRPCCore
 import GRPCNIOTransportHTTP2
 import Hummingbird
 import HummingbirdWebSocket
+import Logging
 import ServiceLifecycle
 import SwiftProtobuf
 import Synchronization
@@ -27,11 +28,15 @@ public final class ExchangeServerApp: Sendable {
 
     /// Runs both servers until the calling task is cancelled or a server fails.
     public func run() async throws {
-        let grpcTransport = HTTP2ServerTransport.Posix(
-            address: .ipv4(host: config.host, port: config.grpcPort),
-            transportSecurity: .plaintext
+        // Release `waitUntilListening()` callers even if a server never came up.
+        defer { record { $0.stopped = true } }
+        let logger = Self.makeLogger()
+        let grpc = GRPCServerService(
+            host: config.host,
+            port: config.grpcPort,
+            services: [SkeletonOrderService()],
+            onListening: { [self] port in self.record { $0.grpc = port } }
         )
-        let grpcServer = GRPCServer(transport: grpcTransport, services: [SkeletonOrderService()])
 
         let router = Self.makeRouter()
         let http = Application(
@@ -40,21 +45,14 @@ public final class ExchangeServerApp: Sendable {
             configuration: .init(address: .hostname(config.host, port: config.restPort)),
             onServerRunning: { [self] channel in
                 if let port = channel.localAddress?.port { self.record { $0.rest = port } }
-            }
+            },
+            logger: logger
         )
 
-        let services = ServiceGroup(services: [http, GRPCServerService(server: grpcServer)])
+        let services = ServiceGroup(services: [http, grpc], logger: logger)
         // The servers run in an unstructured task so that cancelling `run()` becomes a graceful
         // shutdown: cancelling Hummingbird directly drops connections and logs errors.
-        let running = Task {
-            try await withThrowingDiscardingTaskGroup { group in
-                group.addTask { try await services.run() }
-                group.addTask {
-                    let port = try await grpcTransport.listeningAddress.ipv4?.port
-                    if let port { self.record { $0.grpc = port } }
-                }
-            }
-        }
+        let running = Task { try await services.run() }
         try await withTaskCancellationHandler {
             try await running.value
         } onCancel: {
@@ -63,6 +61,9 @@ public final class ExchangeServerApp: Sendable {
     }
 
     /// Suspends until both servers are listening and returns the ports they bound.
+    ///
+    /// If `run()` ends before both servers are listening, returns at that point with `0` for each
+    /// port that was never bound; `0` therefore means "not listening".
     public func waitUntilListening() async -> BoundPorts {
         await withCheckedContinuation { continuation in
             let ready: BoundPorts? = listening.withLock { state in
@@ -74,7 +75,14 @@ public final class ExchangeServerApp: Sendable {
         }
     }
 
-    /// Applies `update`; once both ports are known, resumes every pending `waitUntilListening()`.
+    /// Server logs at `.notice` and above by default (no per-start info lines); `LOG_LEVEL` overrides it.
+    private static func makeLogger() -> Logger {
+        var logger = Logger(label: "ExchangeServer")
+        logger.logLevel = Environment().get("LOG_LEVEL").flatMap(Logger.Level.init(rawValue:)) ?? .notice
+        return logger
+    }
+
+    /// Applies `update`; once both ports are known (or `run()` has ended), resumes every pending `waitUntilListening()`.
     private func record(_ update: (inout ListeningState) -> Void) {
         let ready: (BoundPorts, [CheckedContinuation<BoundPorts, Never>])? = listening.withLock { state in
             update(&state)
@@ -110,11 +118,14 @@ public final class ExchangeServerApp: Sendable {
 private struct ListeningState {
     var rest: Int?
     var grpc: Int?
+    /// `run()` has ended.
+    var stopped = false
     var waiters: [CheckedContinuation<BoundPorts, Never>] = []
 
+    /// The bound ports once both are known; after `run()` ends, any unknown port is reported as `0`.
     var ports: BoundPorts? {
-        guard let rest, let grpc else { return nil }
-        return BoundPorts(rest: rest, grpc: grpc)
+        if let rest, let grpc { return BoundPorts(rest: rest, grpc: grpc) }
+        return stopped ? BoundPorts(rest: rest ?? 0, grpc: grpc ?? 0) : nil
     }
 }
 
@@ -122,15 +133,32 @@ private struct HealthResponse: ResponseEncodable {
     let status: String
 }
 
-/// Adapts `GRPCServer` to a `ServiceLifecycle.Service`.
-private struct GRPCServerService: Service {
-    let server: GRPCServer<HTTP2ServerTransport.Posix>
+/// Adapts `GRPCServer` to a `ServiceLifecycle.Service` and reports the port it bound.
+struct GRPCServerService: Service {
+    private let transport: HTTP2ServerTransport.Posix
+    private let server: GRPCServer<HTTP2ServerTransport.Posix>
+    private let onListening: @Sendable (Int) -> Void
 
+    init(host: String, port: Int, services: [any RegistrableRPCService], onListening: @escaping @Sendable (Int) -> Void) {
+        transport = HTTP2ServerTransport.Posix(address: .ipv4(host: host, port: port), transportSecurity: .plaintext)
+        server = GRPCServer(transport: transport, services: services)
+        self.onListening = onListening
+    }
+
+    /// A graceful shutdown is passed on to the server only after `listeningAddress` has resolved.
+    /// Shutting down a `GRPCServer` before `serve()` stops it without ever calling `transport.listen()`,
+    /// and then `listeningAddress` (which ignores cancellation) never resolves. Because `serve()` is
+    /// always allowed to reach `listen()`, the address resolves either way: with the bound address,
+    /// or with an error once `listen()` exits.
     func run() async throws {
-        try await withGracefulShutdownHandler {
-            try await server.serve()
-        } onGracefulShutdown: {
-            server.beginGracefulShutdown()
+        try await withThrowingDiscardingTaskGroup { group in
+            group.addTask { try await server.serve() }
+            group.addTask {
+                if let port = try? await transport.listeningAddress.ipv4?.port { onListening(port) }
+                // Returns on graceful shutdown, or throws once the group is cancelled because serve() failed.
+                try? await gracefulShutdown()
+                server.beginGracefulShutdown()
+            }
         }
     }
 }

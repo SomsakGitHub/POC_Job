@@ -1,4 +1,5 @@
-import ExchangeServerKit
+@testable import ExchangeServerKit
+import ServiceLifecycleTestKit
 import Testing
 import TradeNetworking
 
@@ -24,6 +25,39 @@ struct SkeletonTests {
             #expect(orderID == "skeleton")
         }
     }
+
+    /// Regression: a graceful shutdown that reaches the gRPC service before `serve()` has started
+    /// must not hang the service (it used to wait forever for a listening address).
+    /// `testGracefulShutdown` makes the early-shutdown ordering deterministic.
+    @Test func grpcShutdownBeforeServeReturns() async {
+        let service = GRPCServerService(host: "127.0.0.1", port: 0, services: [], onListening: { _ in })
+        let returned = await finishes(within: .seconds(10)) {
+            await testGracefulShutdown { trigger in
+                trigger.triggerGracefulShutdown()
+                _ = try? await service.run()
+            }
+        }
+        #expect(returned, "GRPCServerService.run() hung after a graceful shutdown that preceded serve()")
+    }
+}
+
+/// Whether `operation` finishes within `limit`. A hung operation is abandoned, not awaited.
+private func finishes(within limit: Duration, _ operation: @escaping @Sendable () async -> Void) async -> Bool {
+    let (outcome, sink) = AsyncStream<Bool>.makeStream()
+    let work = Task {
+        await operation()
+        sink.yield(true)
+    }
+    let timer = Task {
+        try? await Task.sleep(for: limit)
+        sink.yield(false)
+    }
+    defer {
+        work.cancel()
+        timer.cancel()
+    }
+    for await finished in outcome { return finished }
+    return false
 }
 
 struct ServerStartTimeout: Error {}
@@ -62,6 +96,10 @@ private func withSkeletonServer(
     var iterator = started.makeAsyncIterator()
     guard let ports = try await iterator.next() else { throw ServerStartTimeout() }
     timer.cancel()
+    guard ports.rest != 0, ports.grpc != 0 else {
+        try await server.value  // run() ended before listening: surface its error
+        throw ServerStartTimeout()
+    }
 
     let probe = SkeletonProbe(host: config.host, restPort: ports.rest, grpcPort: ports.grpc)
     try await body(probe)

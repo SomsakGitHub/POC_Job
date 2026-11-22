@@ -25,6 +25,7 @@ while let flag = arguments.popFirst() {
 let app = ExchangeServerApp(config: config)
 Task {
     let ports = await app.waitUntilListening()
+    guard ports.rest != 0, ports.grpc != 0 else { return }  // run() ended before listening; it reports the error
     print("ExchangeServer listening on \(config.host): REST+WebSocket \(ports.rest), gRPC \(ports.grpc)")
 }
 try await app.run()

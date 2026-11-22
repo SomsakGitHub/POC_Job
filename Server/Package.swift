@@ -16,6 +16,7 @@ let package = Package(
         .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "2.5.0"),
         .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.13.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.41.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.17.2"),
     ],
     targets: [
         .target(
@@ -29,6 +30,7 @@ let package = Package(
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+                .product(name: "Logging", package: "swift-log"),
             ]
         ),
         .executableTarget(
@@ -40,6 +42,7 @@ let package = Package(
             dependencies: [
                 "ExchangeServerKit",
                 .product(name: "TradeNetworking", package: "TradeKit"),
+                .product(name: "ServiceLifecycleTestKit", package: "swift-service-lifecycle"),
             ]
         ),
     ]
