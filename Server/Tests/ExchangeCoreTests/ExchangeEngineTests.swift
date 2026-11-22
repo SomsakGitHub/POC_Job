@@ -273,7 +273,7 @@ let ampleCash: Int64 = 1_000_000_000_000
             epoch: newEpoch, cash: defaultStartingCash, positions: [:], lastEventSeq: 0, lastLedgerSeq: 0
         ))
         let outcome = await engine.submit(order("c1", .buy, .limit, 100, limit: quote.bid.satang))
-        #expect(acceptedId(outcome) == "O-000001")
+        #expect(acceptedId(outcome) == "O-000003")
         let records = try await loggedEvents(engine)
         #expect(records.map(\.seq) == [1])
         #expect(records.first?.epoch == newEpoch)

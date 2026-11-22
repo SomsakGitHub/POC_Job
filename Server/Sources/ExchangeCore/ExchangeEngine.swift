@@ -78,7 +78,8 @@ private struct RestingOrder {
 ///
 /// **Orders.** `submit` checks an order in a fixed order (duplicate client id, unknown symbol, quantity, lot, tick,
 /// band, then funds or shares) and the first failure rejects it with one `rejected` event and no ledger change; a
-/// rejection takes no order id, so ids run `O-000001`, `O-000002`, ... without a gap within an epoch. A market order
+/// rejection takes no order id, so ids run `O-000001`, `O-000002`, ... without a gap. An id names one order for the
+/// whole life of the engine, across resets, because a cancel names its order by id alone. A market order
 /// sweeps the book at once, reserving the swept shares at the worst price it reaches, and the part the book could not
 /// fill is cancelled with `.noLiquidity`. A limit order reserves at its limit, sweeps whatever of the book is inside
 /// it, and rests with the rest. Resting orders fill on `advance`, at their limit, against the best level of the quote.
@@ -110,6 +111,8 @@ public actor ExchangeEngine {
     /// Every request of this epoch by client order id, with its first outcome. It grows for the whole epoch, without
     /// bound, and only `reset()` clears it: a retry is recognised however late it comes.
     private var submitted: [String: (request: OrderRequest, outcome: SubmitOutcome)] = [:]
+    /// The number of the next accepted order. `reset()` leaves it alone, so an id from before a reset never names a
+    /// new order and a late cancel of it cannot touch one.
     private var nextOrderNumber = 1
     private var streams: [Int: AsyncStream<OrderEventRecord>.Continuation] = [:]
     private var nextStreamId = 0
@@ -342,7 +345,8 @@ public actor ExchangeEngine {
     }
 
     /// Starts a new epoch: a new epoch id, the account back to its starting cash, and no orders, events, remembered
-    /// client order ids or live streams; order ids start again at `O-000001`. The simulated market carries on.
+    /// client order ids or live streams. Order ids keep counting, so no id is ever reused: a cancel names its order by
+    /// id alone and an id from before the reset matches nothing. The simulated market carries on.
     public func reset() {
         dropStreams()
         epoch = UUID().uuidString
@@ -350,7 +354,6 @@ public actor ExchangeEngine {
         log = EventLog(capacity: eventLogCapacity)
         resting.removeAll()
         submitted.removeAll()
-        nextOrderNumber = 1
     }
 
     private func append(_ payload: OrderEventPayload, tsNs: Int64? = nil) {

@@ -142,7 +142,7 @@ extension ExchangeEngineTests {
         #expect(acceptedId(atReference) != nil)
     }
 
-    @Test func resetClearsOrdersLedgerIdempotencyAndIdsButNotTheMarket() async throws {
+    @Test func resetClearsOrdersLedgerAndIdempotencyButNotTheMarketOrTheIdCounter() async throws {
         let engine = makeEngine()
         let bid = try await currentQuote(engine).bid.satang
         let resting = try await submitAccepted(engine, order("c1", .buy, .limit, 100, limit: bid))
@@ -157,18 +157,34 @@ extension ExchangeEngineTests {
         let quotesAfter = await engine.quotes()
         #expect(quotesAfter == quotesBefore)
 
-        // The same client order id is new again: a new order with the first id of the epoch, not the stored outcome.
+        // The same client order id is new again: a new order with the next id, not the stored outcome.
         let outcome = await engine.submit(order("c2", .buy, .limit, 100, limit: bid))
-        #expect(acceptedId(outcome) == "O-000001")
+        #expect(acceptedId(outcome) == "O-000003")
         let payloads = try await loggedPayloads(engine)
         #expect(payloads.first == .accepted(
-            orderId: "O-000001", clientOrderId: "c2", symbolId: ptt.id, side: .buy, type: .limit, quantity: 100,
+            orderId: "O-000003", clientOrderId: "c2", symbolId: ptt.id, side: .buy, type: .limit, quantity: 100,
             limitPrice: Price(satang: bid)
         ))
         // Resting orders from before the reset never fill: only the new one is left to.
         let found = try await advanceUntil(engine, fromMs: marketStartMs) { !fills(in: $0).isEmpty }
         let step = try #require(found)
-        #expect(fills(in: step.payloads).map(\.orderId) == ["O-000001"])
+        #expect(fills(in: step.payloads).map(\.orderId) == ["O-000003"])
+    }
+
+    @Test func anOrderIdFromBeforeAResetCannotCancelANewOrder() async throws {
+        let engine = makeEngine()
+        let bid = try await currentQuote(engine).bid.satang
+        let old = try await submitAccepted(engine, order("old", .buy, .limit, 100, limit: bid))
+        await engine.reset()
+        let new = try await submitAccepted(engine, order("new", .buy, .limit, 100, limit: bid))
+        #expect(new != old)
+
+        let staleCancel = await engine.cancel(orderId: old)
+        #expect(!staleCancel)
+        let payloads = try await loggedPayloads(engine)
+        #expect(payloads.allSatisfy { if case .cancelled = $0 { false } else { true } })
+        let newCancel = await engine.cancel(orderId: new)
+        #expect(newCancel)
     }
 
     @Test func streamsReleaseTheirContinuationWhenTheConsumerStops() async throws {
