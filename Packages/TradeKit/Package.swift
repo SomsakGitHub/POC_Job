@@ -5,6 +5,7 @@ let package = Package(
     name: "TradeKit",
     platforms: [.macOS(.v15), .iOS(.v18)],
     products: [
+        .library(name: "TradeCore", targets: ["TradeCore"]),
         .library(name: "Contracts", targets: ["Contracts"]),
         .library(name: "TradeNetworking", targets: ["TradeNetworking"]),
     ],
@@ -15,9 +16,12 @@ let package = Package(
         .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "2.5.0"),
     ],
     targets: [
+        // Pure Swift domain primitives shared by the server and the app: no dependencies, no Foundation.
+        .target(name: "TradeCore"),
         .target(
             name: "Contracts",
             dependencies: [
+                "TradeCore",
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
@@ -34,9 +38,14 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "TradeCoreTests",
+            dependencies: ["TradeCore"]
+        ),
+        .testTarget(
             name: "ContractsTests",
             dependencies: [
                 "Contracts",
+                "TradeCore",
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
             ]
