@@ -268,6 +268,41 @@ struct MarketStateTests {
         #expect(rig.state.snapshot(2)?.gapCount == 0)
     }
 
+    /// A new connection is not a new market. The time of the last frame (so `isFresh`), the version a screen redraws
+    /// on and the frame that is still waiting to be drawn all survive `beginConnection()`; `reset()` is the call that
+    /// forgets them. Forgetting any of them on a reconnect would show a feed that has just come back as dead, redraw
+    /// for nothing or lose a measurement.
+    @Test func beginConnectionKeepsFreshnessAndThePendingRenderStamp() {
+        let rig = StateRig()
+        rig.state.setClockOffset(10)
+        rig.apply(symbolUpdate(seq: 1), sendNs: 100, receivedAtNs: 120)
+        let version = rig.state.version
+        #expect(version == 1)
+
+        rig.state.beginConnection()
+
+        let lastFrame = rig.state.lastFrameAtNs
+        let versionAfter = rig.state.version
+        let freshAtTheLimit = rig.state.isFresh(nowNs: 130, maxAgeNs: 10)
+        let freshPastTheLimit = rig.state.isFresh(nowNs: 131, maxAgeNs: 10)
+        #expect(lastFrame == 120)
+        #expect(versionAfter == version)
+        #expect(freshAtTheLimit)
+        // Positive control: freshness is still read from that frame, so one nanosecond more is already too old.
+        #expect(!freshPastTheLimit)
+
+        // The frame that was waiting to be drawn is still measured, with the offset in force: (150 + 10) - 100.
+        rig.state.markRendered(atNs: 150)
+        let drawn = rig.latency.summary(.tickToRender)
+        #expect(drawn == summary(of: [60], metric: .tickToRender))
+        // Positive control: that draw used the stamp up, so a second draw records nothing more.
+        rig.state.markRendered(atNs: 160)
+        let drawnAgain = rig.latency.summary(.tickToRender)
+        let samples = rig.count(.tickToRender)
+        #expect(drawnAgain == drawn)
+        #expect(samples == 1)
+    }
+
     /// The numbering is per symbol: a jump on one symbol says nothing about the others.
     @Test func eachSymbolIsNumberedOnItsOwn() throws {
         let rig = StateRig()
