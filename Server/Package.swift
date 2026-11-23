@@ -60,6 +60,7 @@ let package = Package(
                 "ExchangeServerKit",
                 .product(name: "Contracts", package: "TradeKit"),
                 .product(name: "TradeCore", package: "TradeKit"),
+                .product(name: "TradeNetworking", package: "TradeKit"),
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
                 .product(name: "Hummingbird", package: "hummingbird"),

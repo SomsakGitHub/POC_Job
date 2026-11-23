@@ -31,6 +31,7 @@ let package = Package(
             name: "TradeNetworking",
             dependencies: [
                 "Contracts",
+                "TradeCore",
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
@@ -49,6 +50,10 @@ let package = Package(
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
             ]
+        ),
+        .testTarget(
+            name: "TradeNetworkingTests",
+            dependencies: ["TradeNetworking", "TradeCore", "Contracts"]
         ),
     ]
 )
