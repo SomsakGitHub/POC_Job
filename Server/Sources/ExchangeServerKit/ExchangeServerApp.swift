@@ -1,4 +1,3 @@
-import Contracts
 import ExchangeCore
 import GRPCCore
 import GRPCNIOTransportHTTP2
@@ -18,9 +17,9 @@ public struct BoundPorts: Sendable {
 /// The exchange server: REST + WebSocket (Hummingbird) and gRPC, run with the market runner as services of one
 /// `ServiceGroup`.
 ///
-/// The REST routes, the market runner and the market feed on `/ws/market` are real: the runner publishes every batch of
-/// changed quotes to the hub, which feeds every WebSocket client. `SubmitOrder` (which always accepts, with order id
-/// "skeleton", and never reaches the engine) is still a skeleton.
+/// The REST routes, the gRPC order service and the market feed on `/ws/market` all serve one engine: the runner
+/// publishes every batch of changed quotes to the hub, which feeds every WebSocket client, and the order service
+/// submits and cancels orders and streams their events.
 public final class ExchangeServerApp: Sendable {
     private let config: ServerConfig
     private let nowNs: @Sendable () -> Int64
@@ -61,7 +60,7 @@ public final class ExchangeServerApp: Sendable {
         let grpc = GRPCServerService(
             host: config.host,
             port: config.grpcPort,
-            services: [SkeletonOrderService()],
+            services: [OrderServiceImpl(engine: engine)],
             onListening: { [self] port in self.record { $0.grpc = port } }
         )
 
@@ -159,11 +158,26 @@ struct GRPCServerService: Service {
     private let server: GRPCServer<HTTP2ServerTransport.Posix>
     private let onListening: @Sendable (Int) -> Void
 
+    /// The transport's settings: the defaults, except that clients may send keepalive pings with no call open, as
+    /// often as every 5 seconds.
+    ///
+    /// The app keeps its channel open and warm between orders and pings it to keep it so. By default the transport
+    /// refuses a ping sooner than 5 minutes after the last one while no call is open, and after a few such pings it
+    /// closes the connection with GOAWAY: the warm channel would be dropped and the first order after a quiet spell
+    /// would pay for a new connection.
+    static let transportConfig = HTTP2ServerTransport.Posix.Config.defaults { config in
+        config.connection.keepalive.clientBehavior = .init(
+            minPingIntervalWithoutCalls: .seconds(5), allowWithoutCalls: true
+        )
+    }
+
     init(
         host: String, port: Int, services: [any RegistrableRPCService],
         onListening: @escaping @Sendable (Int) -> Void
     ) {
-        transport = HTTP2ServerTransport.Posix(address: .ipv4(host: host, port: port), transportSecurity: .plaintext)
+        transport = HTTP2ServerTransport.Posix(
+            address: .ipv4(host: host, port: port), transportSecurity: .plaintext, config: Self.transportConfig
+        )
         server = GRPCServer(transport: transport, services: services)
         self.onListening = onListening
     }
@@ -184,24 +198,4 @@ struct GRPCServerService: Service {
             }
         }
     }
-}
-
-/// Skeleton `tp.OrderService`: accepts every order under the id "skeleton" without passing it to the engine.
-private struct SkeletonOrderService: Tp_OrderService.SimpleServiceProtocol {
-    func submitOrder(request: Tp_SubmitOrderRequest, context: ServerContext) async throws -> Tp_SubmitOrderResponse {
-        var response = Tp_SubmitOrderResponse()
-        response.accepted = true
-        response.orderID = "skeleton"
-        return response
-    }
-
-    func cancelOrder(request: Tp_CancelOrderRequest, context: ServerContext) async throws -> Tp_CancelOrderResponse {
-        Tp_CancelOrderResponse()
-    }
-
-    func streamOrderEvents(
-        request: Tp_StreamOrderEventsRequest,
-        response: RPCWriter<Tp_OrderEvent>,
-        context: ServerContext
-    ) async throws {}
 }

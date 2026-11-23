@@ -3,7 +3,6 @@ import Foundation
 import Synchronization
 import Testing
 import TradeCore
-import TradeNetworking
 @testable import ExchangeServerKit
 
 // Shared helpers for the tests that run the whole server: start it on ephemeral ports, stop it, and bound every wait.
@@ -142,17 +141,6 @@ func withRunningServer(
         throw error
     }
     guard await server.shutDown(within: shutdownTimeout) else { throw ServerShutdownTimeout() }
-}
-
-/// Starts a server on ephemeral ports and runs `body` with a probe of the three protocols.
-func withSkeletonServer(
-    startTimeout: Duration = patience,
-    _ body: (SkeletonProbe) async throws -> Void
-) async throws {
-    try await withRunningServer(startTimeout: startTimeout) { _, ports in
-        let probe = SkeletonProbe(host: ServerConfig().host, restPort: ports.rest, grpcPort: ports.grpc)
-        try await body(probe)
-    }
 }
 
 // MARK: REST
