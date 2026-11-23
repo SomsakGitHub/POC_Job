@@ -61,6 +61,8 @@ let package = Package(
                 .product(name: "Contracts", package: "TradeKit"),
                 .product(name: "TradeCore", package: "TradeKit"),
                 .product(name: "TradeNetworking", package: "TradeKit"),
+                .product(name: "Hummingbird", package: "hummingbird"),
+                .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
                 .product(name: "ServiceLifecycleTestKit", package: "swift-service-lifecycle"),
             ]
         ),

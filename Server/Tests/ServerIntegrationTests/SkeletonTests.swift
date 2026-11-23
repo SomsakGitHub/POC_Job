@@ -12,13 +12,6 @@ struct SkeletonTests {
         }
     }
 
-    @Test func webSocketDeliversFrame() async throws {
-        try await withSkeletonServer { probe in
-            let last = try await probe.webSocketLast()
-            #expect(last == 3425)
-        }
-    }
-
     @Test func grpcSubmitAccepted() async throws {
         try await withSkeletonServer { probe in
             let orderID = try await probe.grpcOrderId()

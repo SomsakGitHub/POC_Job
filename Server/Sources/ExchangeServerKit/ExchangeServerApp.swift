@@ -6,7 +6,6 @@ import Hummingbird
 import HummingbirdWebSocket
 import Logging
 import ServiceLifecycle
-import SwiftProtobuf
 import Synchronization
 import TradeCore
 
@@ -19,8 +18,9 @@ public struct BoundPorts: Sendable {
 /// The exchange server: REST + WebSocket (Hummingbird) and gRPC, run with the market runner as services of one
 /// `ServiceGroup`.
 ///
-/// The REST routes and the market runner are real. The market feed (one fixed frame on `/ws/market`) and `SubmitOrder`
-/// (which always accepts, with order id "skeleton", and never reaches the engine) are still skeletons.
+/// The REST routes, the market runner and the market feed on `/ws/market` are real: the runner publishes every batch of
+/// changed quotes to the hub, which feeds every WebSocket client. `SubmitOrder` (which always accepts, with order id
+/// "skeleton", and never reaches the engine) is still a skeleton.
 public final class ExchangeServerApp: Sendable {
     private let config: ServerConfig
     private let nowNs: @Sendable () -> Int64
@@ -29,8 +29,10 @@ public final class ExchangeServerApp: Sendable {
     /// The exchange the server fronts: the simulated market, the demo account and the order events. The REST routes,
     /// the market runner and anything else that serves the exchange share this one engine.
     public let engine: ExchangeEngine
-    /// The lab's settings, which the REST routes change and the market runner follows.
+    /// The lab's settings, which the REST routes change and the market runner and the market feed follow.
     public let lab: LabControls
+    /// The market feed: the latest quote of every symbol and every WebSocket client's subscriptions.
+    public let hub: MarketHub
 
     /// A server over the default symbols, with every clock reading taken from the wall clock.
     public convenience init(config: ServerConfig) {
@@ -42,11 +44,13 @@ public final class ExchangeServerApp: Sendable {
     init(config: ServerConfig, nowNs: @escaping @Sendable () -> Int64) {
         self.config = config
         self.nowNs = nowNs
+        let symbols = SymbolCatalog.defaultSymbols
         engine = ExchangeEngine(
-            symbols: SymbolCatalog.defaultSymbols, seed: config.seed, nowNs: nowNs,
+            symbols: symbols, seed: config.seed, nowNs: nowNs,
             eventLogCapacity: config.eventLogCapacity, commissionBps: config.commissionBps
         )
         lab = LabControls()
+        hub = MarketHub(symbols: symbols, lab: lab, nowNs: nowNs)
     }
 
     /// Runs both servers and the market runner until the calling task is cancelled or a server fails.
@@ -61,10 +65,11 @@ public final class ExchangeServerApp: Sendable {
             onListening: { [self] port in self.record { $0.grpc = port } }
         )
 
-        let rest = RestRoutes(engine: engine, lab: lab, nowNs: nowNs, dropConnections: { [engine] in
+        let rest = RestRoutes(engine: engine, lab: lab, nowNs: nowNs, dropConnections: { [engine, hub] in
             await engine.dropStreams()
+            await hub.dropAll()
         })
-        let router = Self.makeRouter(rest: rest)
+        let router = Self.makeRouter(rest: rest, feed: MarketWebSocket(hub: hub, nowNs: nowNs))
         let http = Application(
             router: router,
             server: .http1WebSocketUpgrade(webSocketRouter: router),
@@ -75,8 +80,10 @@ public final class ExchangeServerApp: Sendable {
             logger: logger
         )
 
+        // The first subscriber gets every symbol's full state, even before the market has moved.
+        await hub.publish(await engine.quotes())
         // The runner is last: a group shuts its services down in reverse order, so the market stops first.
-        let runner = MarketRunner(engine: engine, lab: lab, nowNs: nowNs)
+        let runner = MarketRunner(engine: engine, lab: lab, nowNs: nowNs, publish: { [hub] in await hub.publish($0) })
         let services = ServiceGroup(services: [http, grpc, runner], logger: logger)
         // The servers run in an unstructured task so that cancelling `run()` becomes a graceful
         // shutdown: cancelling Hummingbird directly drops connections and logs errors.
@@ -124,23 +131,11 @@ public final class ExchangeServerApp: Sendable {
         for waiter in waiters { waiter.resume(returning: ports) }
     }
 
-    private static func makeRouter(rest: RestRoutes) -> Router<BasicWebSocketRequestContext> {
+    private static func makeRouter(rest: RestRoutes, feed: MarketWebSocket) -> Router<BasicWebSocketRequestContext> {
         let router = Router(context: BasicWebSocketRequestContext.self)
         rest.add(to: router)
-        router.ws("/ws/market") { inbound, outbound, _ in
-            try await outbound.write(.binary(ByteBuffer(bytes: try skeletonFrame().serializedData())))
-            for try await _ in inbound {}  // keep the socket open until the client closes it
-        }
+        feed.add(to: router)
         return router
-    }
-
-    private static func skeletonFrame() -> Tp_MarketFrame {
-        var update = Tp_SymbolUpdate()
-        update.symbolID = 1
-        update.last = 3425
-        var frame = Tp_MarketFrame()
-        frame.updates = [update]
-        return frame
     }
 }
 
