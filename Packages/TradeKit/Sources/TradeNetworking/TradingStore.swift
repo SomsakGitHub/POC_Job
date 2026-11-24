@@ -44,8 +44,9 @@ import TradeCore
     /// state's resume point (0 on a fresh launch, so the server replays its log and the order rows are rebuilt), and
     /// watches the connection: at every `.connected` the account is read again, which is how a server that was reset
     /// or restarted, and has no events of its new epoch yet, still clears the rows of the old one. A failed read is
-    /// ignored; the next connection reads again. Calling it again after the client was stopped starts the stream
-    /// again and keeps the rows.
+    /// ignored; the next connection reads again. When the server no longer keeps the events asked for, the store
+    /// reads the account and only then replaces its rows with it; while that read fails, the state is left as it was.
+    /// Calling it again after the client was stopped starts the stream again and keeps the rows.
     public func start() async {
         await fetchAccount(adoptEventSeq: false)
         connectionState = nil
@@ -148,22 +149,31 @@ import TradeCore
         if connection == .connected { await fetchAccount(adoptEventSeq: false) }
     }
 
-    /// The server no longer keeps the events the state would resume from: start over from its account. When the
-    /// read fails the cleared state stays; the next connection reads the account and asks again.
+    /// The server no longer keeps the events the state would resume from: start over from its account. The account
+    /// is read first; only once it has arrived are the old rows cleared and the account (with its event sequence)
+    /// taken, in one step with no suspension between, so no frame ever shows a cleared state. When the read fails,
+    /// or its answer straddles an epoch change, nothing changes at all: the state keeps what was true, the resume
+    /// point stays, and the next connection asks the server again.
     private func recoverFromOutOfRange() async {
+        guard let account = await readAccount() else { return }
         apply(.clear)
-        await fetchAccount(adoptEventSeq: true)
+        apply(.account(account, adoptEventSeq: true))
     }
 
-    /// Reads the account and applies it, unless the answer would straddle an epoch change: when the state's epoch
-    /// changed while the call was out and the answer's epoch is not the state's epoch now, the answer belongs to the
-    /// epoch the state has left, and applying it would take the state back and wipe the new epoch's rows. A failed
-    /// read changes nothing.
+    /// Reads the account and applies it (see `readAccount`); nothing changes when there is no answer to apply.
     private func fetchAccount(adoptEventSeq: Bool) async {
-        let epochBefore = resume.current.epoch
-        guard let account = try? await rest.account() else { return }
-        let epochNow = state.epoch
-        if epochNow != epochBefore, account.epoch != epochNow { return }
+        guard let account = await readAccount() else { return }
         apply(.account(account, adoptEventSeq: adoptEventSeq))
+    }
+
+    /// The account, or nil when the read failed or the answer would straddle an epoch change: when the state's epoch
+    /// changed while the call was out and the answer's epoch is not the state's epoch now, the answer belongs to the
+    /// epoch the state has left, and applying it would take the state back and wipe the new epoch's rows.
+    private func readAccount() async -> AccountDTO? {
+        let epochBefore = resume.current.epoch
+        guard let account = try? await rest.account() else { return nil }
+        let epochNow = state.epoch
+        if epochNow != epochBefore, account.epoch != epochNow { return nil }
+        return account
     }
 }

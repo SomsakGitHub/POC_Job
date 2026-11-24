@@ -171,17 +171,23 @@ struct TradingStoreTests {
         #expect(rig.store.state.orders.map(\.id) == ["C-61"])
     }
 
-    /// A failed reload leaves the cleared state; the next out-of-range recovery completes.
-    @Test func aFailedReloadIsRepeatedByTheNextRecovery() async throws {
+    /// A failed reload changes nothing at all, not even the resume point; the next out-of-range recovery completes.
+    @Test func aFailedReloadChangesNothingAndTheNextRecoveryCompletes() async throws {
         let rig = StoreRig()
         try await rig.start()
-        try await rig.deliver([acceptedEvent(1, epoch: "E1", client: "C-1")])
+        try await rig.deliver([
+            acceptedEvent(1, epoch: "E1", client: "C-1"),
+            fillEvent(2, quantity: 100, price: 1_000, remaining: 100),
+            ledgerEvent(3, ledgerSeq: 1, quantity: 100, price: 1_000, cashAfter: 9_000, positionAfter: 100),
+        ])
+        let before = rig.store.state
         rig.rest.enqueue(.failure)
         let handlers = try rig.client.requireHandlers()
         await handlers.onOutOfRange()
-        #expect(rig.store.state.orders.isEmpty)
-        #expect(rig.store.state.epoch == nil)
-        #expect(handlers.resumeFrom().seq == 0)
+        #expect(rig.store.state == before)
+        let unchanged = handlers.resumeFrom()
+        #expect(unchanged.seq == 3)
+        #expect(unchanged.epoch == "E1")
 
         rig.rest.enqueue(.account(accountSnapshot(epoch: "E1", cash: 300, lastEventSeq: 40)))
         await handlers.onOutOfRange()
