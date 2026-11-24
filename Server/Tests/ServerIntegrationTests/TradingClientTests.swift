@@ -164,6 +164,9 @@ struct TradingClientTests {
             let registered = await eventually { await rig.app.hub.connectionCount() == 1 }
             #expect(registered)
             _ = try await rig.rest.setLab(LabPatch(stress: true))
+            // The stall is real: every subscribed symbol has a quote waiting on the connection, and keeps it.
+            let stalledProven = await holdsStall(rig.app.hub, symbols: symbols.count)
+            try #require(stalledProven, "the stall never took effect: the market client's quotes did not back up")
 
             await rig.store.start()
             let connected = await rig.connected()
@@ -179,8 +182,10 @@ struct TradingClientTests {
             let state = await rig.state()
             #expect(state.orders.count == 200)
             #expect(!state.hasUnanswered)
+            // Bounded at one quote per symbol, and still full: the stall lasted through every order.
             let pending = await rig.app.hub.maxPendingCount()
             #expect(pending <= 12)
+            #expect(pending == symbols.count)
             stalled.cancel(with: .goingAway, reason: nil)
         }
     }

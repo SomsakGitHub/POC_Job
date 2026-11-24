@@ -158,6 +158,20 @@ extension TradingState {
     }
 }
 
+/// Whether a connection of `hub` holds a waiting quote for every one of `symbols` subscribed symbols in 10
+/// consecutive samples 50 ms apart, within `limit`. A healthy connection takes its quotes with every frame, so its
+/// count flickers; only a connection whose writes are blocked keeps them all, sample after sample.
+func holdsStall(_ hub: MarketHub, symbols: Int, within limit: Duration = .seconds(10)) async -> Bool {
+    let deadline = ContinuousClock.now + limit
+    var streak = 0
+    while ContinuousClock.now < deadline {
+        streak = await hub.maxPendingCount() == symbols ? streak + 1 : 0
+        if streak >= 10 { return true }
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+    return false
+}
+
 /// Whether the numbers are 1, 2, 3 ... with no gap and no repeat; false for none.
 func isContiguousFromOne(_ numbers: [UInt64]) -> Bool {
     !numbers.isEmpty && numbers.enumerated().allSatisfy { $0.element == UInt64($0.offset + 1) }
