@@ -23,6 +23,8 @@ targets:
         product: TradeNetworking
       - package: TradeKit
         product: Contracts
+      - package: TradeKit
+        product: TradeCore
     info:
       path: TradePulse/Info.plist
       properties:
