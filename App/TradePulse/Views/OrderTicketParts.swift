@@ -66,10 +66,11 @@ struct TicketEstimateSection: View {
             .font(.subheadline)
     }
 
-    /// The estimate in money.
+    /// The estimate in money, on one line.
     private var figure: some View {
         Text(model.estimatedCost)
             .font(.title3.weight(.semibold).monospacedDigit())
+            .amountOnOneLine()
     }
 }
 

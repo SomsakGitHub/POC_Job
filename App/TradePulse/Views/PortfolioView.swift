@@ -65,10 +65,7 @@ struct PortfolioAccount: View {
             symbols: environment.symbols
         )
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 16) {
-                figure("Cash", portfolio.cashText)
-                figure("Equity", portfolio.equityText)
-            }
+            AccountFigures(cash: portfolio.cashText, equity: portfolio.equityText)
             if let waiting = portfolio.waitingText {
                 Label(waiting, systemImage: "hourglass")
                     .font(.footnote)
@@ -89,6 +86,35 @@ struct PortfolioAccount: View {
             }
         }
     }
+}
+
+/// The cash and the equity, side by side when both fit on one line and one above the other, each on a row of its own,
+/// when they do not. An amount is never broken in the middle of the number.
+///
+/// Whether they fit depends on the amounts as well as on the text size: a balance of seven digits stacks at a size
+/// where a small one still sits beside the other figure. It takes the two texts and nothing else, so it reads nothing
+/// that changes while the screen is open.
+struct AccountFigures: View {
+    /// The cash as money.
+    let cash: String
+    /// The equity as money, or a dash while a position has no price.
+    let equity: String
+
+    /// The two figures, in a row when they fit and in a column when they do not.
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                figure("Cash", cash)
+                figure("Equity", equity)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                figure("Cash", cash)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                figure("Equity", equity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
 
     /// A label over a figure.
     private func figure(_ title: String, _ text: String) -> some View {
@@ -98,6 +124,7 @@ struct PortfolioAccount: View {
                 .foregroundStyle(.secondary)
             Text(text)
                 .font(.title3.weight(.semibold).monospacedDigit())
+                .amountOnOneLine()
         }
         .accessibilityElement(children: .combine)
     }

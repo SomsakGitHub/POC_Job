@@ -16,7 +16,8 @@ struct OrderRowView: View {
     /// Sends the order again with the same order id. Called from the retry button.
     let retry: () async -> Void
 
-    /// The order over its status, and the buttons under them when the order has any.
+    /// The order over its status, and the buttons under them when the order has any. The row is as tall as its words
+    /// need, whatever height the list offers it, so that no line of it is cut short.
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             summary
@@ -46,6 +47,7 @@ struct OrderRowView: View {
                 }
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)
     }
 
@@ -65,9 +67,15 @@ struct OrderRowView: View {
                     StatusChip(kind: presentation.statusKind, text: presentation.statusText)
                 }
             }
-            HStack(spacing: 12) {
-                Text(presentation.quantityText)
-                Text(presentation.averageText)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    quantity
+                    average
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    quantity
+                    average
+                }
             }
             .font(.subheadline.monospacedDigit())
             .foregroundStyle(.secondary)
@@ -77,6 +85,18 @@ struct OrderRowView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// The shares filled and the shares asked for, on one line.
+    private var quantity: some View {
+        Text(presentation.quantityText)
+            .amountOnOneLine()
+    }
+
+    /// The average price of the fills, on one line.
+    private var average: some View {
+        Text(presentation.averageText)
+            .amountOnOneLine()
     }
 
     /// The title as it is said: the dot between the side and the type is a pause.
