@@ -66,15 +66,17 @@ struct EnvRig {
     let env: AppEnvironment
 
     /// An environment over fakes. `holdsSubscribe` makes the market client keep its first subscribe until it is
-    /// released, and `tradingStartsAs` is the state the trading client reports once its event stream starts.
+    /// released, `tradingStartsAs` is the state the trading client reports once its event stream starts, and
+    /// `tradingSubmits` are the answers of its first calls of `submit`.
     init(
         rest: FakeRest = FakeRest(), sleeper: FakeSleeper = FakeSleeper(), config: ClientConfig = ClientConfig(),
-        holdsSubscribe: Bool = false, tradingStartsAs: ConnectionState = .connecting
+        holdsSubscribe: Bool = false, tradingStartsAs: ConnectionState = .connecting,
+        tradingSubmits: [FakeTradingClient.SubmitAnswer] = []
     ) {
         let log = log
         let builds = builds
         let market = FakeMarketClient(log: log, holdsSubscribe: holdsSubscribe)
-        let tradingClient = FakeTradingClient(log: log, startsAs: tradingStartsAs)
+        let tradingClient = FakeTradingClient(log: log, startsAs: tradingStartsAs, submits: tradingSubmits)
         self.rest = rest
         self.sleeper = sleeper
         self.market = market

@@ -27,9 +27,9 @@ struct RootTabView: View {
             TabView {
                 MarketListView()
                     .tabItem { Label("Market", systemImage: "chart.line.uptrend.xyaxis") }
-                PlaceholderTab(title: "Orders")
+                OrdersView()
                     .tabItem { Label("Orders", systemImage: "list.bullet.rectangle") }
-                PlaceholderTab(title: "Portfolio")
+                PortfolioView()
                     .tabItem { Label("Portfolio", systemImage: "briefcase") }
                 PlaceholderTab(title: "Lab")
                     .tabItem { Label("Lab", systemImage: "slider.horizontal.3") }

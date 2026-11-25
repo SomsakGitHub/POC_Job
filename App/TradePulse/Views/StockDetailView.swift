@@ -2,8 +2,8 @@ import Contracts
 import SwiftUI
 import TradeCore
 
-/// The detail screen of one symbol: its ticker, name and last price, the interval and style pickers, the latency chip
-/// and the live chart.
+/// The detail screen of one symbol: its ticker, name and last price, the interval and style pickers, the latency chip,
+/// the live chart, the buttons that open the order ticket and the newest fills of the symbol.
 ///
 /// The screen is a thin wrapper around `StockDetailScreen`, which makes the screen's model in its `init` from the
 /// environment's REST client and market state; a view cannot read the environment before it has a body.
@@ -29,7 +29,8 @@ struct StockDetailView: View {
 /// again and again, and a segmented control that is updated while a finger is on it drops that touch, so taps on the
 /// pickers would be lost for as long as prices stream. What changes with the prices is read in views of their own
 /// (`StockDetailHeader`, `LoadingOverlay`, `TickBridge` and the chart), each in its own body, so that only those are
-/// evaluated again.
+/// evaluated again. The trade buttons read nothing, and the recent fills read the trading state in a body of their
+/// own, so that a fill evaluates the fills and not the screen.
 struct StockDetailScreen: View {
     /// The interval a screen starts with: one-minute candles are the most readable.
     private static let startInterval = CandleInterval.m1
@@ -74,6 +75,8 @@ struct StockDetailScreen: View {
                     .frame(height: 320)
                     .overlay { LoadingOverlay(model: model) }
                 failure
+                TradeButtons(symbol: model.symbol, environment: environment)
+                RecentFillsView(symbolId: model.symbol.id, environment: environment)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
