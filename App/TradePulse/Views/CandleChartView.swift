@@ -36,12 +36,10 @@ struct CandleChartView: View {
 
     /// The width of the canvas, for turning a drag in points into candles.
     @State private var width: CGFloat = 0
-    /// The pan offset when the drag in progress began; nil when no pan is in progress. It is a gesture state, which
-    /// SwiftUI sets back to nil when the drag ends and also when it is cancelled (by the system, an alert, the app
-    /// going to the background or another gesture taking over); `onEnded` is not called for a cancelled drag.
-    @GestureState private var panStart: Int?
-    /// The number of candles in view when the pinch in progress began; nil when no pinch is in progress. A gesture
-    /// state for the same reason as `panStart`.
+    /// The number of candles in view when the pinch in progress began; nil when no pinch is in progress. It is a
+    /// gesture state, which SwiftUI sets back to nil when the pinch ends and also when it is cancelled (by the system,
+    /// an alert, the app going to the background or another gesture taking over); `onEnded` is not called for a
+    /// cancelled pinch.
     @GestureState private var zoomStart: Int?
 
     /// The canvas, with the pan and the pinch, described to VoiceOver as one picture.
@@ -54,8 +52,8 @@ struct CandleChartView: View {
         }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }, action: { width = $0 })
         .contentShape(Rectangle())
-        .simultaneousGesture(panGesture)
         .simultaneousGesture(zoomGesture)
+        .gesture(ChartPan(model: model, slotWidth: { slotWidth }))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityLabel(ticker: model.symbol.ticker, last: key.lastPrice))
         .accessibilityAddTraits(.isImage)
@@ -135,27 +133,13 @@ struct CandleChartView: View {
         width / CGFloat(max(model.visibleCount, 1))
     }
 
-    /// Dragging the chart moves the window by whole candles from where it was when the drag began. A drag that is
-    /// mostly vertical is left to the scroll view the chart sits in, unless it began as a pan.
+    /// Pinching changes how many candles are in view from the count when the pinch began. One closure takes the start
+    /// (the first time it runs for a pinch) and uses it, so the result does not depend on which of two closures
+    /// SwiftUI calls first for an event, and there is no `onEnded` that a cancelled pinch would skip: the start is a
+    /// gesture state, so SwiftUI clears it for an ended and for a cancelled pinch alike, and the next pinch starts from
+    /// the count the model has then.
     ///
-    /// One closure takes the start (the first time it runs for a drag) and uses it, so the result does not depend on
-    /// which of two closures SwiftUI calls first for an event, and there is no `onEnded` that a cancelled drag would
-    /// skip: `panStart` is the gesture's own state, so SwiftUI clears it for an ended and for a cancelled drag alike
-    /// and the next drag starts from the offset the model has then.
-    private var panGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .updating($panStart) { value, start, _ in
-                guard start != nil || Self.beginsPan(translation: value.translation) else { return }
-                let base = start ?? model.panOffset
-                start = base
-                model.panOffset = Self.panOffset(
-                    start: base, translation: value.translation.width, slotWidth: slotWidth
-                )
-            }
-    }
-
-    /// Pinching changes how many candles are in view from the count when the pinch began. Like the drag, it takes its
-    /// start and uses it in one closure; that start is a gesture state, so a cancelled pinch cannot leave it behind.
+    /// The pan of the chart is not a SwiftUI gesture; see `ChartPan` for why.
     private var zoomGesture: some Gesture {
         MagnifyGesture()
             .updating($zoomStart) { value, start, _ in
@@ -170,6 +154,7 @@ struct CandleChartView: View {
     /// scroll view the chart sits in, and so is one that has gone exactly as far across as up or down, because it
     /// does not yet say which way it means to go. A drag whose width is not a finite number starts nothing, and nor
     /// does one whose height is not a number or is infinite, because the width is then not the greater of the two.
+    /// The recognizer of the pan asks this once a touch has gone far enough to be judged.
     nonisolated static func beginsPan(translation: CGSize) -> Bool {
         translation.width.isFinite && abs(translation.width) > abs(translation.height)
     }

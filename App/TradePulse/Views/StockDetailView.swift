@@ -23,7 +23,14 @@ struct StockDetailView: View {
 /// again whenever what it loads for changes (a new interval, a connection that came back, a tap on Retry), and the live
 /// candle is taken from the market state each time a frame carried new prices. The model is released with the screen,
 /// and `stop()` cancels what the model still has in flight when the screen goes away.
-private struct StockDetailScreen: View {
+///
+/// The body of this view must not read anything that changes at the pace of the prices: not the pump's `tick`, and not
+/// the model's header, last price or candles. A body that is evaluated at that pace updates the two segmented pickers
+/// again and again, and a segmented control that is updated while a finger is on it drops that touch, so taps on the
+/// pickers would be lost for as long as prices stream. What changes with the prices is read in views of their own
+/// (`StockDetailHeader`, `LoadingOverlay`, `TickBridge` and the chart), each in its own body, so that only those are
+/// evaluated again.
+struct StockDetailScreen: View {
     /// The interval a screen starts with: one-minute candles are the most readable.
     private static let startInterval = CandleInterval.m1
 
@@ -37,8 +44,9 @@ private struct StockDetailScreen: View {
 
     /// The app's environment: the pump, the latency recorder and the market connection.
     private let environment: AppEnvironment
-    /// What the screen shows, made once for the screen.
-    @State private var model: StockDetailViewModel
+    /// What the screen shows, made once for the screen. It can be read from outside, so that a test can change it and
+    /// see whether the body of the screen would be evaluated again.
+    @State private(set) var model: StockDetailViewModel
     /// The interval the picker is on. The `.task` makes the model follow it.
     @State private var picked = StockDetailScreen.startInterval
     /// How many times the history has been asked for again.
@@ -59,16 +67,12 @@ private struct StockDetailScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                header
+                StockDetailHeader(model: model)
                 LatencyChip(latency: environment.latency)
                 controls
                 CandleChartView(model: model, pump: environment.pump)
                     .frame(height: 320)
-                    .overlay {
-                        if model.isLoading && !model.hasCandles {
-                            ProgressView()
-                        }
-                    }
+                    .overlay { LoadingOverlay(model: model) }
                 failure
             }
             .padding(.horizontal, 16)
@@ -77,7 +81,7 @@ private struct StockDetailScreen: View {
         .navigationTitle(model.symbol.ticker)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: LoadTrigger(interval: picked, reloads: reloads)) { await load() }
-        .onChange(of: environment.pump.tick) { model.refreshFromState() }
+        .background { TickBridge(pump: environment.pump, model: model) }
         .onChange(of: environment.marketConnection) { old, new in
             if shouldReloadOnConnection(from: old, to: new) {
                 reloads += 1
@@ -99,9 +103,47 @@ private struct StockDetailScreen: View {
 
     // MARK: Parts
 
-    /// The ticker and the Thai name on the left, the last price and its move on the right, and the words that say the
-    /// data is simulated. The two halves are stacked when they do not fit side by side.
-    private var header: some View {
+    /// The pickers for the interval and for candles or a line.
+    private var controls: some View {
+        VStack(spacing: 8) {
+            Picker("Interval", selection: $picked) {
+                ForEach(CandleInterval.allCases, id: \.self) { interval in
+                    Text(interval.label).tag(interval)
+                }
+            }
+            .pickerStyle(.segmented)
+            Picker("Chart style", selection: $model.style) {
+                ForEach(ChartStyle.allCases, id: \.self) { style in
+                    Text(style.label).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    /// The notice that the history could not be loaded, with the button that asks again. The chart keeps what it had.
+    @ViewBuilder private var failure: some View {
+        if model.loadFailed {
+            HStack {
+                Label("The history could not be loaded.", systemImage: "exclamationmark.triangle")
+                Spacer(minLength: 8)
+                Button("Retry") { reloads += 1 }
+            }
+            .font(.footnote)
+        }
+    }
+}
+
+/// The ticker and the Thai name on the left, the last price and its move on the right, and the words that say the data
+/// is simulated. The two halves are stacked when they do not fit side by side.
+///
+/// It reads the model's header in its own body, so that a new price evaluates this view and not the screen around it.
+private struct StockDetailHeader: View {
+    /// The model whose header is shown.
+    let model: StockDetailViewModel
+
+    /// The header as it is now.
+    var body: some View {
         let row = model.header
         let style = DirectionStyle(row.direction)
         return VStack(alignment: .leading, spacing: 4) {
@@ -150,34 +192,39 @@ private struct StockDetailScreen: View {
             .foregroundStyle(style.color)
         }
     }
+}
 
-    /// The pickers for the interval and for candles or a line.
-    private var controls: some View {
-        VStack(spacing: 8) {
-            Picker("Interval", selection: $picked) {
-                ForEach(CandleInterval.allCases, id: \.self) { interval in
-                    Text(interval.label).tag(interval)
-                }
-            }
-            .pickerStyle(.segmented)
-            Picker("Chart style", selection: $model.style) {
-                ForEach(ChartStyle.allCases, id: \.self) { style in
-                    Text(style.label).tag(style)
-                }
-            }
-            .pickerStyle(.segmented)
+/// The spinner over the chart while the history is loading and there is nothing to draw yet.
+///
+/// It reads the loading flag and the candles in its own body. While a load is in flight the candles can change with
+/// every price, and that must not evaluate the screen.
+private struct LoadingOverlay: View {
+    /// The model that loads the history.
+    let model: StockDetailViewModel
+
+    /// A spinner while the history loads and the series is empty, and nothing otherwise.
+    var body: some View {
+        if model.isLoading && !model.hasCandles {
+            ProgressView()
         }
     }
+}
 
-    /// The notice that the history could not be loaded, with the button that asks again. The chart keeps what it had.
-    @ViewBuilder private var failure: some View {
-        if model.loadFailed {
-            HStack {
-                Label("The history could not be loaded.", systemImage: "exclamationmark.triangle")
-                Spacer(minLength: 8)
-                Button("Retry") { reloads += 1 }
-            }
-            .font(.footnote)
-        }
+/// Takes the market's current state into the model each time a frame carried new prices. It draws nothing and takes no
+/// room.
+///
+/// It is a view of its own so that the pump's `tick`, which moves at the pace of the prices, is read in this body and
+/// not in the screen's.
+private struct TickBridge: View {
+    /// The pump whose `tick` moves when a frame carried new prices.
+    let pump: FramePump
+    /// The model that takes the market's state.
+    let model: StockDetailViewModel
+
+    /// A view of no size that notices each move of the tick.
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: pump.tick) { model.refreshFromState() }
     }
 }

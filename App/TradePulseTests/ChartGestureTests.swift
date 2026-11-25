@@ -2,10 +2,11 @@ import CoreGraphics
 import Observation
 import Testing
 import TradeCore
+import UIKit
 @testable import TradePulse
 
 /// What the chart does with the fingers and what it says to VoiceOver: how far a drag or a pinch moves the window,
-/// which input is ignored, and what makes the chart draw again.
+/// which touches are left to the scroll view, which input is ignored, and what makes the chart draw again.
 @Suite(.timeLimit(.minutes(1)))
 struct ChartGestureTests {
     // MARK: Pan
@@ -86,6 +87,90 @@ struct ChartGestureTests {
         for (across, down, begins, why) in cases {
             let answer = CandleChartView.beginsPan(translation: CGSize(width: across, height: down))
             #expect(answer == begins, "\(why): \(across) across and \(down) down")
+        }
+    }
+
+    // MARK: Pan recognizer
+
+    @Test func aTouchIsRefusedAsAPanOnlyOnceItHasGoneFarEnoughAndIsNotMostlySideways() {
+        let nan = CGFloat.nan
+        let infinity = CGFloat.infinity
+        let cases: [(across: CGFloat, down: CGFloat, refused: Bool, why: String)] = [
+            (0, 0, false, "it has not moved"),
+            (7, 0, false, "short of the distance, across"),
+            (0, 7, false, "short of the distance, down: not judged yet"),
+            (0, -7.9, false, "short of the distance, up: not judged yet"),
+            (5, 5, false, "short of the distance, on the diagonal"),
+            (8, 0, false, "exactly the distance, straight across"),
+            (-8, 0, false, "exactly the distance, straight across to the left"),
+            (30, 5, false, "mostly across"),
+            (-30, 12, false, "mostly across, to the left"),
+            (7, 5, false, "mostly across, just past the distance"),
+            (0, 8, true, "exactly the distance, straight down"),
+            (0, -8, true, "exactly the distance, straight up"),
+            (0, 30, true, "straight down"),
+            (3, 12, true, "mostly down"),
+            (-3, -12, true, "mostly up, a little to the left"),
+            (5, 7, true, "mostly down, just past the distance"),
+            (6, 6, true, "exactly diagonal, just past the distance"),
+            (-10, 10, true, "exactly diagonal, to the left"),
+            (nan, 0, true, "a width that is not a number"),
+            (0, nan, true, "a height that is not a number"),
+            (infinity, 0, true, "an infinite width"),
+            (0, -infinity, true, "an infinite height upwards"),
+            (nan, nan, true, "nothing that is a number"),
+            (infinity, infinity, true, "everything infinite"),
+        ]
+        #expect(cases.count == 24)
+        // Both answers are in the table, and so are movements that are judged and let through, so a function that
+        // always gives one answer, or that refuses everything it judges, is caught.
+        #expect(cases.filter(\.refused).count == 14)
+        #expect(cases.filter { !$0.refused }.count == 10)
+        for (across, down, refused, why) in cases {
+            let answer = ChartPanRecognizer.refuses(movement: CGSize(width: across, height: down))
+            #expect(answer == refused, "\(why): \(across) across and \(down) down")
+        }
+    }
+
+    @Test func aPanCountsFromTheModelsOffsetWhenItBeginsAndIsForgottenWhenItIsOver() {
+        typealias State = UIGestureRecognizer.State
+        let cases: [(state: State, previous: Int?, modelOffset: Int, expected: Int?, why: String)] = [
+            (.began, nil, 5, 5, "a pan that begins counts from the offset the model has"),
+            (.began, 9, 5, 5, "a pan that begins does not take the start an earlier pan left behind"),
+            (.changed, 9, 12, 9, "a pan that goes on keeps its start although the model has moved"),
+            (.changed, nil, 12, 12, "a pan first seen going on counts from the offset the model has"),
+            (.ended, 9, 12, nil, "a pan that ended has no start"),
+            (.ended, nil, 12, nil, "a pan that ended with no start kept has none"),
+            (.cancelled, 9, 12, nil, "a pan that was cancelled has no start"),
+            (.cancelled, nil, 12, nil, "a pan that was cancelled with no start kept has none"),
+            (.failed, 9, 12, nil, "a pan that failed has no start"),
+            (.failed, nil, 12, nil, "a pan that failed with no start kept has none"),
+            (.possible, 9, 12, nil, "a pan that has not begun has no start"),
+        ]
+        #expect(cases.count == 11)
+        // Both kinds of answer are in the table, so a function that always gives a start, or never, is caught.
+        #expect(cases.filter { $0.expected != nil }.count == 4)
+        #expect(cases.filter { $0.expected == nil }.count == 7)
+        for (state, previous, modelOffset, expected, why) in cases {
+            let start = ChartPan.start(for: state, previous: previous, modelOffset: modelOffset)
+            #expect(start == expected, "\(why)")
+        }
+    }
+
+    @Test func aPanThatEndedWasCancelledOrFailedLeavesNoStartForTheNextOne() {
+        let ends: [UIGestureRecognizer.State] = [.ended, .cancelled, .failed]
+        #expect(ends.count == 3)
+        for end in ends {
+            // What the pan keeps from one call to the next, as the recognizer's action updates it.
+            var held = ChartPan.start(for: .began, previous: nil, modelOffset: 5)
+            #expect(held == 5, "\(end): the pan began where the model was")
+            held = ChartPan.start(for: .changed, previous: held, modelOffset: 9)
+            #expect(held == 5, "\(end): the pan went on from where it began")
+            held = ChartPan.start(for: end, previous: held, modelOffset: 9)
+            #expect(held == nil, "\(end): the pan is over")
+            // The next pan begins where the model is now, and not where the one before it began.
+            held = ChartPan.start(for: .began, previous: held, modelOffset: 9)
+            #expect(held == 9, "\(end): the next pan began where the model was")
         }
     }
 
