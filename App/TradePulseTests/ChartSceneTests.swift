@@ -45,6 +45,8 @@ struct ChartSceneTests {
         abs(a - b) < 1e-9
     }
 
+    /// The scene the chart builds for `candles`, with a default for every other argument: the candle style, a window of
+    /// 20 candles at the newest, the canvas of these tests and no last price (`last` is given in satang).
     private func scene(
         _ candles: [Candle], style: ChartStyle = .candle, visibleCount: Int = 20, panOffset: Int = 0,
         size: CGSize = Self.size, last: Int64? = nil
@@ -262,7 +264,7 @@ struct ChartSceneTests {
         #expect(near(drawn.lastPriceY ?? -1, 120))
     }
 
-    @Test func pricesAtTheBoundsOfInt64StayInsideThePricePane() {
+    @Test func pricesAtTheBoundsOfInt64StayInsideThePricePane() throws {
         let low = Int64.min
         let high = Int64.max
         let extremes: [Candle] = [
@@ -279,10 +281,15 @@ struct ChartSceneTests {
             #expect(mark.wickTop >= 0)
             #expect(mark.wickBottom <= 240)
         }
+        // The first candle has the biggest volume, the second has none and so no bar, and the third has so little that
+        // its bar is hardly there but is more than nothing: two bars, so the loop has something to look at.
+        try #require(drawn.volumes.count == 2)
         for bar in drawn.volumes {
             #expect(bar.height.isFinite && bar.top.isFinite)
             #expect(bar.height <= 60)
         }
-        #expect((drawn.lastPriceY ?? 0).isFinite)
+        // The last price is the highest there is, which is inside the range, so a line across is drawn.
+        let lastY = try #require(drawn.lastPriceY)
+        #expect(lastY.isFinite)
     }
 }

@@ -48,47 +48,62 @@ struct OpenSymbolRequestTests {
         #expect(tickers.count == 4)
         for ticker in tickers {
             var request = LaunchRequest(arguments: ["TradePulse", "--open-symbol", ticker])
-            #expect(request.take(from: sampleSymbols) == 4, "\(ticker)")
+            let id = request.take(from: sampleSymbols)
+            #expect(id == 4, "\(ticker)")
         }
         var other = LaunchRequest(arguments: ["TradePulse", "--open-symbol", "cpall"])
-        #expect(other.take(from: sampleSymbols) == 9)
+        let cpall = other.take(from: sampleSymbols)
+        #expect(cpall == 9)
     }
 
     @Test func nothingIsPushedBeforeTheSymbolsHaveLoadedAndTheRequestWaits() {
         var request = LaunchRequest(arguments: ["TradePulse", "--open-symbol", "AOT"])
-        #expect(request.take(from: []) == nil)
-        #expect(request.take(from: []) == nil)
-        #expect(request.take(from: sampleSymbols) == 2)
+        let early = request.take(from: [])
+        let earlyAgain = request.take(from: [])
+        let loaded = request.take(from: sampleSymbols)
+        #expect(early == nil)
+        #expect(earlyAgain == nil)
+        #expect(loaded == 2)
     }
 
     @Test func theScreenIsPushedOnceAndNotAgainWhenTheUserComesBack() {
         var request = LaunchRequest(arguments: ["TradePulse", "--open-symbol", "AOT"])
-        #expect(request.take(from: sampleSymbols) == 2)
-        #expect(request.take(from: sampleSymbols) == nil)
-        #expect(request.take(from: sampleSymbols) == nil)
+        let first = request.take(from: sampleSymbols)
+        let second = request.take(from: sampleSymbols)
+        let third = request.take(from: sampleSymbols)
+        #expect(first == 2)
+        #expect(second == nil)
+        #expect(third == nil)
     }
 
     @Test func anUnknownTickerDoesNothingAndDoesNotTryAgain() {
         var request = LaunchRequest(arguments: ["TradePulse", "--open-symbol", "ZZZ"])
-        #expect(request.take(from: sampleSymbols) == nil)
+        let first = request.take(from: sampleSymbols)
+        #expect(first == nil)
         // A list that has the ticker later does not bring the request back.
         let zzz = SymbolDTO(id: 77, ticker: "ZZZ", nameTh: "ทดสอบ", nameEn: "Test", reference: 100, lot: 100)
-        #expect(request.take(from: sampleSymbols + [zzz]) == nil)
+        let later = request.take(from: sampleSymbols + [zzz])
+        #expect(later == nil)
 
         // Control: a request for the same ticker is carried out when the list has it the first time.
         var found = LaunchRequest(arguments: ["TradePulse", "--open-symbol", "ZZZ"])
-        #expect(found.take(from: sampleSymbols + [zzz]) == 77)
+        let id = found.take(from: sampleSymbols + [zzz])
+        #expect(id == 77)
     }
 
     @Test func noRequestNeverPushes() {
         var request = LaunchRequest(arguments: ["TradePulse"])
-        #expect(request.take(from: []) == nil)
-        #expect(request.take(from: sampleSymbols) == nil)
+        let early = request.take(from: [])
+        let loaded = request.take(from: sampleSymbols)
         var missing = LaunchRequest(arguments: ["TradePulse", "--open-symbol"])
-        #expect(missing.take(from: sampleSymbols) == nil)
+        let noValue = missing.take(from: sampleSymbols)
+        #expect(early == nil)
+        #expect(loaded == nil)
+        #expect(noValue == nil)
 
         // Control: the same list with the flag and a value does push.
         var asked = LaunchRequest(arguments: ["TradePulse", "--open-symbol", "PTT"])
-        #expect(asked.take(from: sampleSymbols) == 4)
+        let id = asked.take(from: sampleSymbols)
+        #expect(id == 4)
     }
 }

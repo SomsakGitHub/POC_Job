@@ -36,10 +36,13 @@ struct CandleChartView: View {
 
     /// The width of the canvas, for turning a drag in points into candles.
     @State private var width: CGFloat = 0
-    /// The pan offset when the drag in progress began; nil when no pan is in progress.
-    @State private var panStart: Int?
-    /// The number of candles in view when the pinch in progress began; nil when no pinch is in progress.
-    @State private var zoomStart: Int?
+    /// The pan offset when the drag in progress began; nil when no pan is in progress. It is a gesture state, which
+    /// SwiftUI sets back to nil when the drag ends and also when it is cancelled (by the system, an alert, the app
+    /// going to the background or another gesture taking over); `onEnded` is not called for a cancelled drag.
+    @GestureState private var panStart: Int?
+    /// The number of candles in view when the pinch in progress began; nil when no pinch is in progress. A gesture
+    /// state for the same reason as `panStart`.
+    @GestureState private var zoomStart: Int?
 
     /// The canvas, with the pan and the pinch, described to VoiceOver as one picture.
     var body: some View {
@@ -134,28 +137,41 @@ struct CandleChartView: View {
 
     /// Dragging the chart moves the window by whole candles from where it was when the drag began. A drag that is
     /// mostly vertical is left to the scroll view the chart sits in, unless it began as a pan.
+    ///
+    /// One closure takes the start (the first time it runs for a drag) and uses it, so the result does not depend on
+    /// which of two closures SwiftUI calls first for an event, and there is no `onEnded` that a cancelled drag would
+    /// skip: `panStart` is the gesture's own state, so SwiftUI clears it for an ended and for a cancelled drag alike
+    /// and the next drag starts from the offset the model has then.
     private var panGesture: some Gesture {
         DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                guard panStart != nil || abs(value.translation.width) > abs(value.translation.height) else { return }
-                let start = panStart ?? model.panOffset
-                panStart = start
+            .updating($panStart) { value, start, _ in
+                guard start != nil || Self.beginsPan(translation: value.translation) else { return }
+                let base = start ?? model.panOffset
+                start = base
                 model.panOffset = Self.panOffset(
-                    start: start, translation: value.translation.width, slotWidth: slotWidth
+                    start: base, translation: value.translation.width, slotWidth: slotWidth
                 )
             }
-            .onEnded { _ in panStart = nil }
     }
 
-    /// Pinching changes how many candles are in view from the count when the pinch began.
+    /// Pinching changes how many candles are in view from the count when the pinch began. Like the drag, it takes its
+    /// start and uses it in one closure; that start is a gesture state, so a cancelled pinch cannot leave it behind.
     private var zoomGesture: some Gesture {
         MagnifyGesture()
-            .onChanged { value in
-                let start = zoomStart ?? model.visibleCount
-                zoomStart = start
-                model.visibleCount = Self.visibleCount(start: start, magnification: value.magnification)
+            .updating($zoomStart) { value, start, _ in
+                let base = start ?? model.visibleCount
+                start = base
+                model.visibleCount = Self.visibleCount(start: base, magnification: value.magnification)
             }
-            .onEnded { _ in zoomStart = nil }
+    }
+
+    /// Whether a drag that has gone `translation` points from where it began starts a pan: it does when it is mostly
+    /// horizontal, that is when it has gone further across than up or down. A mostly vertical drag is left to the
+    /// scroll view the chart sits in, and so is one that has gone exactly as far across as up or down, because it
+    /// does not yet say which way it means to go. A drag whose width is not a finite number starts nothing, and nor
+    /// does one whose height is not a number or is infinite, because the width is then not the greater of the two.
+    nonisolated static func beginsPan(translation: CGSize) -> Bool {
+        translation.width.isFinite && abs(translation.width) > abs(translation.height)
     }
 
     /// The pan offset that a drag of `translation` points leads to, from the offset `start` it began at: the drag in

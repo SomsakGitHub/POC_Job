@@ -47,6 +47,48 @@ struct ChartGestureTests {
         #expect(tiny > 100)
     }
 
+    @Test func aDragBeginsAPanOnlyWhenItIsMostlyHorizontal() {
+        let nan = CGFloat.nan
+        let infinity = CGFloat.infinity
+        let cases: [(across: CGFloat, down: CGFloat, begins: Bool, why: String)] = [
+            (30, 5, true, "further across than down"),
+            (-30, 5, true, "further across, to the left"),
+            (30, -5, true, "further across, a little up"),
+            (-30, -5, true, "further across, to the left and a little up"),
+            (30, 0, true, "straight across"),
+            (-30, 0, true, "straight across to the left"),
+            (9, 8, true, "just further across than down"),
+            (5, 30, false, "further down than across"),
+            (-5, 30, false, "further down, a little to the left"),
+            (5, -30, false, "further up than across"),
+            (-5, -30, false, "further up, a little to the left"),
+            (0, 30, false, "straight down"),
+            (0, -30, false, "straight up"),
+            (8, 9, false, "just further down than across"),
+            (10, 10, false, "as far across as down"),
+            (-10, 10, false, "as far to the left as down"),
+            (10, -10, false, "as far across as up"),
+            (-10, -10, false, "as far to the left as up"),
+            (0, 0, false, "no distance"),
+            (nan, 5, false, "a width that is not a number"),
+            (5, nan, false, "a height that is not a number"),
+            (nan, nan, false, "nothing that is a number"),
+            (infinity, 5, false, "an infinite width"),
+            (-infinity, 0, false, "an infinite width to the left"),
+            (5, infinity, false, "an infinite height"),
+            (30, -infinity, false, "an infinite height upwards"),
+            (infinity, infinity, false, "everything infinite"),
+        ]
+        #expect(cases.count == 27)
+        // Both answers are in the table, so a function that always gives one of them is caught.
+        #expect(cases.filter(\.begins).count == 7)
+        #expect(cases.filter { !$0.begins }.count == 20)
+        for (across, down, begins, why) in cases {
+            let answer = CandleChartView.beginsPan(translation: CGSize(width: across, height: down))
+            #expect(answer == begins, "\(why): \(across) across and \(down) down")
+        }
+    }
+
     // MARK: Zoom
 
     @Test func aPinchScalesTheNumberOfCandlesInView() {

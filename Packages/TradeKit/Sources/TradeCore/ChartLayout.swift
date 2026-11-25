@@ -31,7 +31,10 @@ public struct ChartLayout: Sendable {
     /// The height of the price pane, the top of the canvas: what the volume pane leaves.
     public let pricePaneHeight: CGFloat
 
+    /// The lowest price of the range, in satang. It is kept as the raw `Int64` so that `y(price:)` can take the height
+    /// of the range in `Int128`, which two prices at the bounds of an `Int64` do not overflow.
     private let lower: Int64
+    /// The highest price of the range, in satang, kept as the raw `Int64` for the same reason as `lower`.
     private let upper: Int64
 
     /// A layout for a canvas of `size`, with `visibleCount` candle slots across it, showing the prices of `priceRange`.
