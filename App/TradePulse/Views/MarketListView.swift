@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The Market tab: one row per symbol, each with its last price and its move from the reference price.
+/// The Market tab: one row per symbol, each with its last price and its move from the reference price. A row opens the
+/// symbol's detail screen.
 ///
 /// The list is redrawn when `pump.tick` changes, which happens at most once per display frame however many updates
 /// the feed delivered. The body reads nothing else that changes with the feed: in particular it never reads the
@@ -9,20 +10,43 @@ import SwiftUI
 struct MarketListView: View {
     /// The app's environment, put in place by the root view.
     @Environment(AppEnvironment.self) private var environment
+    /// The detail screens that are open, by symbol id: a symbol is not hashable, and an id says which one without
+    /// holding on to it.
+    @State private var path: [UInt32] = []
+    /// What the launch arguments ask to open, until it has been opened.
+    @State private var launch = LaunchRequest(arguments: CommandLine.arguments)
 
     /// The list, or a progress view until the server has given its symbols.
     var body: some View {
         let rows = Self.rows(in: environment)
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if rows.isEmpty {
                     ProgressView("Loading market\u{2026}")
                 } else {
-                    List(rows) { MarketRow(model: $0) }
-                        .listStyle(.plain)
+                    List(rows) { row in
+                        NavigationLink(value: row.id) { MarketRow(model: row) }
+                    }
+                    .listStyle(.plain)
                 }
             }
             .navigationTitle("Market")
+            .navigationDestination(for: UInt32.self) { id in
+                detail(of: id)
+            }
+        }
+        .onChange(of: environment.symbols.count, initial: true) {
+            if let id = launch.take(from: environment.symbols) {
+                path.append(id)
+            }
+        }
+    }
+
+    /// The detail screen of the symbol with `id`; nothing for an id that is not in the list.
+    @ViewBuilder
+    private func detail(of id: UInt32) -> some View {
+        if let symbol = environment.symbols.first(where: { $0.id == id }) {
+            StockDetailView(symbol: symbol)
         }
     }
 

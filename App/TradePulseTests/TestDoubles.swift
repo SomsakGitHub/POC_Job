@@ -289,8 +289,8 @@ final class FakeTradingClient: TradingClient {
     var terminations: [StateHub.Termination] { hub.terminations }
 }
 
-/// A REST API whose symbol list answers from a script and whose other calls all fail as a server that is not there:
-/// with `URLError.cannotConnectToHost`. A scripted `.hold` keeps the call until the test releases it.
+/// A REST API whose symbol list and candle history answer from scripts and whose other calls all fail as a server that
+/// is not there: with `URLError.cannotConnectToHost`. A scripted `.hold` keeps the call until the test releases it.
 final class FakeRest: RestAPI {
     /// What one call to `symbols()` does.
     enum Answer: Sendable {
@@ -300,6 +300,26 @@ final class FakeRest: RestAPI {
         case failure(any Error)
         /// Does not return until the test calls `release(_:)`.
         case hold
+    }
+
+    /// What one call to `candles(ticker:interval:limit:)` does.
+    enum CandleAnswer: Sendable {
+        /// Returns these candles.
+        case candles([Candle])
+        /// Throws this error.
+        case failure(any Error)
+        /// Does not return until the test calls `releaseCandles(call:_:)`.
+        case hold
+    }
+
+    /// The arguments of one call to `candles(ticker:interval:limit:)`.
+    struct CandleCall: Equatable, Sendable {
+        /// The ticker asked for.
+        let ticker: String
+        /// The interval asked for.
+        let interval: CandleInterval
+        /// How many candles were asked for.
+        let limit: Int
     }
 
     /// What the fake keeps between calls, under one lock.
@@ -314,14 +334,29 @@ final class FakeRest: RestAPI {
         var accountCalls = 0
         /// The calls of `symbols()` that wait for a release, oldest first.
         var held: [CheckedContinuation<[SymbolDTO], any Error>] = []
+        /// The candle answers still to give, oldest first.
+        var candleScript: [CandleAnswer]
+        /// The candle answer once the candle script is used up.
+        var candleFallback: CandleAnswer
+        /// Every call of `candles(ticker:interval:limit:)`, in the order it arrived.
+        var candleCalls: [CandleCall] = []
+        /// The candle calls that wait for a release, by the number of the call (0 is the first call).
+        var heldCandles: [Int: CheckedContinuation<[Candle], any Error>] = [:]
     }
 
     /// The fake's script and counters.
     private let shared: Mutex<Shared>
 
-    /// A fake that gives the answers of `script`, one per call, and `fallback` once the script is used up.
-    init(_ script: [Answer] = [], fallback: Answer = .list(sampleSymbols)) {
-        shared = Mutex(Shared(script: script, fallback: fallback))
+    /// A fake that gives the answers of `script`, one per call, and `fallback` once the script is used up. The history
+    /// calls are answered the same way from `candles` and `candlesFallback`; unless a test says otherwise they fail as
+    /// a server that is not there.
+    init(
+        _ script: [Answer] = [], fallback: Answer = .list(sampleSymbols), candles: [CandleAnswer] = [],
+        candlesFallback: CandleAnswer = .failure(URLError(.cannotConnectToHost))
+    ) {
+        shared = Mutex(
+            Shared(script: script, fallback: fallback, candleScript: candles, candleFallback: candlesFallback)
+        )
     }
 
     /// Gives the next answer of the script.
@@ -363,10 +398,36 @@ final class FakeRest: RestAPI {
         throw URLError(.cannotConnectToHost)
     }
 
-    /// Fails as a server that is not there.
+    /// Notes the call and gives the next answer of the candle script. A held call does not return until the test
+    /// releases it by its number; the call is noted first, so a test can wait for it to be held.
     func candles(ticker: String, interval: CandleInterval, limit: Int) async throws -> [Candle] {
-        throw URLError(.cannotConnectToHost)
+        let (number, answer) = shared.withLock { shared in
+            shared.candleCalls.append(CandleCall(ticker: ticker, interval: interval, limit: limit))
+            let answer = shared.candleScript.isEmpty ? shared.candleFallback : shared.candleScript.removeFirst()
+            return (shared.candleCalls.count - 1, answer)
+        }
+        switch answer {
+        case .candles(let candles): return candles
+        case .failure(let error): throw error
+        case .hold:
+            return try await withCheckedThrowingContinuation { continuation in
+                shared.withLock { $0.heldCandles[number] = continuation }
+            }
+        }
     }
+
+    /// Lets the held candle call number `call` (0 is the first call) return `result`; false when that call is not held.
+    @discardableResult
+    func releaseCandles(call: Int, _ result: Result<[Candle], any Error>) -> Bool {
+        let held = shared.withLock { $0.heldCandles.removeValue(forKey: call) }
+        held?.resume(with: result)
+        return held != nil
+    }
+
+    /// Every call of `candles(ticker:interval:limit:)` so far, in the order it arrived.
+    var candleCalls: [CandleCall] { shared.withLock { $0.candleCalls } }
+    /// How many candle calls wait for a release.
+    var heldCandleCount: Int { shared.withLock { $0.heldCandles.count } }
 
     /// Fails as a server that is not there.
     func transactions(cursor: String?, limit: Int) async throws -> TransactionPageDTO {
