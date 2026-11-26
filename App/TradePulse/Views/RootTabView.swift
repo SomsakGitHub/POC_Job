@@ -31,23 +31,9 @@ struct RootTabView: View {
                     .tabItem { Label("Orders", systemImage: "list.bullet.rectangle") }
                 PortfolioView()
                     .tabItem { Label("Portfolio", systemImage: "briefcase") }
-                PlaceholderTab(title: "Lab")
+                LabView()
                     .tabItem { Label("Lab", systemImage: "slider.horizontal.3") }
             }
-        }
-    }
-}
-
-/// A tab whose screen has not been built yet.
-private struct PlaceholderTab: View {
-    /// The name of the tab, which is also its navigation title.
-    let title: String
-
-    /// A navigation stack that says the tab is not available yet.
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView(title, systemImage: "hammer", description: Text("This tab is not available yet."))
-                .navigationTitle(title)
         }
     }
 }

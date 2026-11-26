@@ -21,11 +21,21 @@ struct TradePulseApp: App {
                 RootTabView()
                     .environment(environment)
                     .task { await environment.bootstrap() }
+                    .task { await printLatencyLinesIfAsked() }
                     .onChange(of: scenePhase, initial: true) { _, phase in
                         environment.scenePhaseChanged(to: phase)
                     }
             }
         }
+    }
+
+    /// Prints the latency line every five seconds for as long as the app runs, when it was launched with
+    /// `--print-latency`, and does nothing otherwise. The measurement script reads the lines from standard output.
+    private func printLatencyLinesIfAsked() async {
+        guard LatencyPrinter.shouldStart(
+            arguments: ProcessInfo.processInfo.arguments, isRunningUnitTests: Self.isRunningUnitTests
+        ) else { return }
+        await LatencyPrinter(latency: environment.latency, pump: environment.pump).run()
     }
 }
 

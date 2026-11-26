@@ -127,6 +127,26 @@ final class FramePump {
         drawHistogram.record(nanos: drawNs)
     }
 
+    /// Starts the frame and draw statistics over: the frame and hitch counts go back to 0 and the draw times are
+    /// forgotten.
+    ///
+    /// The display link, the timestamp of the previous frame, the due time of the newest frame and the tick are left
+    /// as they are. The next frame is therefore measured from the frame before the reset and counts like any other,
+    /// where a pump that was started again would have no interval for its first one, and a draw that follows is still
+    /// stamped with the due time of the last frame.
+    ///
+    /// A view that reads a count is told when it changes, and a reset of counts that are already 0 changes nothing.
+    func resetStatistics() {
+        // A new detector ignores its first call, which has no interval. That call is made here, with nothing to
+        // measure, so that the next real frame is counted.
+        var fresh = HitchDetector()
+        fresh.record(frameIntervalNs: 0, expectedNs: 0)
+        detector = fresh
+        frames = 0
+        hitches = 0
+        drawHistogram = LatencyHistogram()
+    }
+
     /// `seconds` as whole nanoseconds, rounded to the nearest. A number that is not finite is 0 and one that does not
     /// fit in an `Int64` is the nearest bound. The comparisons come before the conversion, because `Double(Int64.max)`
     /// is 2^63, which `Int64(_:)` traps on.

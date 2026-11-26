@@ -215,17 +215,22 @@ final class FakeSleeper: Sendable {
         self.behavior = behavior
     }
 
-    /// Records `duration` and then behaves as chosen.
+    /// Records `duration` and then behaves as chosen. A sleep that waits for a release notes its request and its gate
+    /// under one lock: a test that waits until `requested` says the sleep is there and then calls `release()` must find
+    /// the gate, or the release would be lost and the sleep would wait for ever.
     func sleep(_ duration: Duration) async throws {
-        shared.withLock { $0.durations.append(duration) }
         switch behavior {
         case .returnAtOnce:
-            return
+            shared.withLock { $0.durations.append(duration) }
         case .throwError(let error):
+            shared.withLock { $0.durations.append(duration) }
             throw error
         case .holdUntilReleased:
             let (gate, opener) = AsyncStream<Void>.makeStream()
-            shared.withLock { $0.gates.append(opener) }
+            shared.withLock { shared in
+                shared.durations.append(duration)
+                shared.gates.append(opener)
+            }
             var iterator = gate.makeAsyncIterator()
             // An `AsyncStream` iterator returns nil when the waiting task is cancelled.
             guard await iterator.next() != nil else { throw CancellationError() }

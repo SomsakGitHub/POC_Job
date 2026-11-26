@@ -171,13 +171,14 @@ func fillEvent(_ seq: UInt64, order: String, epoch: String = "E1") -> Tp_OrderEv
     return event
 }
 
-/// A snapshot whose last price is `last` satang; every other number is a placeholder.
-func snapshot(symbol: UInt32 = 4, last: Int64) -> SymbolSnapshot {
+/// A snapshot whose last price is `last` satang and that has seen `gaps` gaps in the sequence; every other number is a
+/// placeholder.
+func snapshot(symbol: UInt32 = 4, last: Int64, gaps: Int = 0) -> SymbolSnapshot {
     let price = Price(satang: last)
     let candle = Candle(openTimeMs: 0, open: price, high: price, low: price, close: price, volume: 0)
     return SymbolSnapshot(
         symbolId: symbol, seq: 1, last: price, bid: price, ask: price, bidQty: 0, askQty: 0, dayVolume: 0,
-        candle1s: candle, candle1m: candle, candle5m: candle, appliedAtNs: 0, gapCount: 0
+        candle1s: candle, candle1m: candle, candle5m: candle, appliedAtNs: 0, gapCount: gaps
     )
 }
 

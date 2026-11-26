@@ -1,3 +1,4 @@
+import Observation
 import Testing
 import TradeCore
 import TradeNetworking
@@ -255,6 +256,83 @@ struct FramePumpTests {
         rig.step(at: 10.0)
         #expect(rig.pump.frames == 1)
         #expect(rig.pump.hitches == 0)
+    }
+
+    // MARK: Starting the statistics over
+
+    @Test func resetStatisticsStartsTheCountsOverAndTheNextFramesCountAgain() {
+        let rig = PumpRig()
+        let pump = rig.pump
+        rig.step(at: 10.0)
+        rig.step(at: 10.016)
+        rig.step(at: 10.100)
+        pump.notifyRendered(drawNs: 2_000_000)
+        let before = (pump.frames, pump.hitches, pump.drawCost.count)
+
+        pump.resetStatistics()
+
+        #expect(before.0 == 2 && before.1 == 1 && before.2 == 1, "two frames, one of them a hitch, and one draw")
+        #expect(pump.frames == 0)
+        #expect(pump.hitches == 0)
+        #expect(pump.drawCost.count == 0)
+        #expect(pump.drawCost == PercentileSummary(count: 0, p50Ns: nil, p95Ns: nil, p99Ns: nil, clamped: 0))
+
+        // The frame before the reset is still the one the next interval is measured from, so the first frame after
+        // the reset is a frame and not the first of a start.
+        rig.step(at: 10.116)
+        #expect(pump.frames == 1)
+        #expect(pump.hitches == 0)
+        rig.step(at: 10.200)
+        #expect(pump.frames == 2)
+        #expect(pump.hitches == 1)
+    }
+
+    @Test func resetStatisticsLeavesTheLinkTheRenderStampAndTheTickAlone() {
+        let links = StubLinks()
+        let rig = PumpRig(nowNs: 5_000_000_000, mediaNow: 100.0, makeLink: { links.make($0, $1) })
+        rig.pump.start()
+        defer { rig.pump.stop() }
+        rig.apply(seq: 1, sendNs: 4_990_000_000)
+        rig.pump.step(timestamp: 100.0, targetTimestamp: 100.016, duration: 0.016)
+        let tickBefore = rig.pump.tick
+        // Time goes by, and a frame is applied that no step has shown yet.
+        rig.clock.set(9_000_000_000)
+        rig.apply(seq: 2, sendNs: 4_995_000_000)
+
+        rig.pump.resetStatistics()
+        rig.pump.notifyRendered(drawNs: 1_000_000)
+
+        #expect(tickBefore == 1)
+        #expect(rig.pump.tick == tickBefore)
+        #expect(rig.pump.isRunning)
+        #expect(links.made.count == 1)
+        #expect(links.made.first?.invalidations == 0)
+        // The draw is stamped with the due time of the last step, 26 ms and then 21 ms after the server's stamps, and
+        // not with the clock, which would make a latency of seconds.
+        #expect(rig.latency.summary(.tickToRender) == summary(of: [26_000_000, 21_000_000]))
+        #expect(rig.pump.drawCost == summary(of: [1_000_000]))
+    }
+
+    @Test func resetStatisticsOfAPumpThatCountedNothingTellsNobody() {
+        let rig = PumpRig()
+        let quiet = Flag()
+        withObservationTracking {
+            _ = rig.pump.frames
+            _ = rig.pump.hitches
+        } onChange: {
+            quiet.set()
+        }
+
+        rig.pump.resetStatistics()
+        let toldByTheReset = quiet.isSet
+
+        // The control: the same observation is told when a frame is counted.
+        rig.step(at: 10.0)
+        rig.step(at: 10.016)
+
+        #expect(!toldByTheReset)
+        #expect(quiet.isSet)
+        #expect(rig.pump.frames == 1)
     }
 
     // MARK: Totality

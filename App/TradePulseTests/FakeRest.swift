@@ -4,9 +4,10 @@ import Synchronization
 import TradeCore
 import TradeNetworking
 
-/// A REST API whose symbol list, candle history, account and transactions answer from scripts and whose other calls
-/// all fail as a server that is not there: with `URLError.cannotConnectToHost`. A scripted `.hold` keeps the call until
-/// the test releases it.
+/// A REST API whose calls all answer from scripts: the symbol list, the candle history, the account and the
+/// transactions each from a script of their own, and the server's clock, the lab's settings, the drop of the
+/// connections and the reset each from a `ScriptedCall`. A call that has no script fails as a server that is not
+/// there does: with `URLError.cannotConnectToHost`. A scripted `.hold` keeps the call until the test releases it.
 final class FakeRest: RestAPI {
     /// What one call to `symbols()` does.
     enum Answer: Sendable {
@@ -34,6 +35,8 @@ final class FakeRest: RestAPI {
         case account(AccountDTO)
         /// Throws this error.
         case failure(any Error)
+        /// Does not return until the test calls `releaseAccount(call:_:)`.
+        case hold
     }
 
     /// What one call to `transactions(cursor:limit:)` does.
@@ -88,6 +91,8 @@ final class FakeRest: RestAPI {
         var accountScript: [AccountAnswer]
         /// The account answer once the account script is used up.
         var accountFallback: AccountAnswer
+        /// The account calls that wait for a release, by the number of the call (0 is the first call).
+        var heldAccounts: [Int: CheckedContinuation<AccountDTO, any Error>] = [:]
         /// The transaction answers still to give, oldest first.
         var transactionScript: [TransactionAnswer]
         /// The transaction answer once the transaction script is used up.
@@ -100,6 +105,18 @@ final class FakeRest: RestAPI {
 
     /// The fake's script and counters.
     private let shared: Mutex<Shared>
+    /// Where each call of `account()` is noted as "rest.account"; nil notes nothing.
+    private let accountLog: EventLog?
+    /// The answers of `serverTimeNs()`.
+    let serverTime: ScriptedCall<Void, Int64>
+    /// The answers of `lab()`.
+    let labRead: ScriptedCall<Void, LabSettings>
+    /// The answers of `setLab(_:)`, and the patches it was given.
+    let labWrite: ScriptedCall<LabPatch, LabSettings>
+    /// The answers of `dropConnections()`.
+    let drops: ScriptedCall<Void, Void>
+    /// The answers of `resetServer()`.
+    let resets: ScriptedCall<Void, String>
 
     /// A fake that gives the answers of `script`, one per call, and `fallback` once the script is used up. The history,
     /// account and transaction calls are answered the same way from `candles`, `accounts` and `transactions`, each with
@@ -109,8 +126,19 @@ final class FakeRest: RestAPI {
         candlesFallback: CandleAnswer = .failure(URLError(.cannotConnectToHost)),
         accounts: [AccountAnswer] = [], accountsFallback: AccountAnswer = .failure(URLError(.cannotConnectToHost)),
         transactions: [TransactionAnswer] = [],
-        transactionsFallback: TransactionAnswer = .failure(URLError(.cannotConnectToHost))
+        transactionsFallback: TransactionAnswer = .failure(URLError(.cannotConnectToHost)),
+        serverTime: ScriptedCall<Void, Int64> = ScriptedCall(),
+        labRead: ScriptedCall<Void, LabSettings> = ScriptedCall(),
+        labWrite: ScriptedCall<LabPatch, LabSettings> = ScriptedCall(),
+        drops: ScriptedCall<Void, Void> = ScriptedCall(),
+        resets: ScriptedCall<Void, String> = ScriptedCall(), accountLog: EventLog? = nil
     ) {
+        self.accountLog = accountLog
+        self.serverTime = serverTime
+        self.labRead = labRead
+        self.labWrite = labWrite
+        self.drops = drops
+        self.resets = resets
         shared = Mutex(
             Shared(
                 script: script, fallback: fallback, candleScript: candles, candleFallback: candlesFallback,
@@ -153,17 +181,37 @@ final class FakeRest: RestAPI {
     /// How many calls of `symbols()` wait for a release.
     var heldCount: Int { shared.withLock { $0.held.count } }
 
-    /// Counts the call and gives the next answer of the account script.
+    /// Counts the call and gives the next answer of the account script. A held call does not return until the test
+    /// releases it by its number; a test that waits for a held call waits for `heldAccountCount`, which counts it only
+    /// once it can be released.
     func account() async throws -> AccountDTO {
-        let answer = shared.withLock { shared in
+        accountLog?.add("rest.account")
+        let (number, answer) = shared.withLock { shared in
             shared.accountCalls += 1
-            return shared.accountScript.isEmpty ? shared.accountFallback : shared.accountScript.removeFirst()
+            let answer = shared.accountScript.isEmpty ? shared.accountFallback : shared.accountScript.removeFirst()
+            return (shared.accountCalls - 1, answer)
         }
         switch answer {
         case .account(let account): return account
         case .failure(let error): throw error
+        case .hold:
+            return try await withCheckedThrowingContinuation { continuation in
+                shared.withLock { $0.heldAccounts[number] = continuation }
+            }
         }
     }
+
+    /// Lets the held account call number `call` (0 is the first call) return `result`; false when that call is not
+    /// held.
+    @discardableResult
+    func releaseAccount(call: Int, _ result: Result<AccountDTO, any Error>) -> Bool {
+        let held = shared.withLock { $0.heldAccounts.removeValue(forKey: call) }
+        held?.resume(with: result)
+        return held != nil
+    }
+
+    /// How many account calls wait for a release.
+    var heldAccountCount: Int { shared.withLock { $0.heldAccounts.count } }
 
     /// Notes the call and gives the next answer of the candle script. A held call does not return until the test
     /// releases it by its number; the call is noted first, so a test can wait for it to be held.
@@ -229,28 +277,28 @@ final class FakeRest: RestAPI {
     /// How many transaction calls wait for a release.
     var heldTransactionCount: Int { shared.withLock { $0.heldTransactions.count } }
 
-    /// Fails as a server that is not there.
+    /// Gives the next answer of the server-time script.
     func serverTimeNs() async throws -> Int64 {
-        throw URLError(.cannotConnectToHost)
+        try await serverTime.call(())
     }
 
-    /// Fails as a server that is not there.
+    /// Gives the next answer of the lab-read script.
     func lab() async throws -> LabSettings {
-        throw URLError(.cannotConnectToHost)
+        try await labRead.call(())
     }
 
-    /// Fails as a server that is not there.
+    /// Notes the patch and gives the next answer of the lab-write script.
     func setLab(_ patch: LabPatch) async throws -> LabSettings {
-        throw URLError(.cannotConnectToHost)
+        try await labWrite.call(patch)
     }
 
-    /// Fails as a server that is not there.
+    /// Gives the next answer of the drop script.
     func dropConnections() async throws {
-        throw URLError(.cannotConnectToHost)
+        try await drops.call(())
     }
 
-    /// Fails as a server that is not there.
+    /// Gives the next answer of the reset script.
     func resetServer() async throws -> String {
-        throw URLError(.cannotConnectToHost)
+        try await resets.call(())
     }
 }
