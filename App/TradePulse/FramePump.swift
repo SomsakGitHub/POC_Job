@@ -61,6 +61,8 @@ final class FramePump {
     /// refreshes of the grid that `lastPresentNs` is one point of. It is 0 or less when the link reported a duration
     /// that is not a positive finite number, and then the grid is not known.
     @ObservationIgnored private var lastPeriodNs: Int64 = 0
+    /// Whether the pump ran and has been stopped since, until it starts again. The draws of that time are not measured.
+    @ObservationIgnored private var isStopped = false
 
     /// Whether the display link is running.
     var isRunning: Bool { displayLink != nil }
@@ -91,18 +93,20 @@ final class FramePump {
     /// Starting a pump that runs does nothing. The first frame after a start has no interval, so the time the app
     /// spent stopped is never counted as a hitch. A frame applied while the pump was stopped was never drawn when it
     /// arrived, so its render stamp is dropped: the first step after the start still moves `tick` for it, and records
-    /// no render time for it.
+    /// no render time for it, and neither does a draw that comes before the start (see `notifyRendered`).
     func start() {
         guard displayLink == nil else { return }
         let link = makeLink(FrameLinkTarget(pump: self), #selector(FrameLinkTarget.fire(_:)))
         link.add(to: .main, forMode: .common)
         displayLink = link
         previousTimestamp = nil
+        isStopped = false
         marketState.discardPendingRender()
     }
 
     /// Ends the display link. Stopping a pump that is stopped does nothing.
     func stop() {
+        if displayLink != nil { isStopped = true }
         displayLink?.invalidate()
         displayLink = nil
     }
@@ -157,11 +161,17 @@ final class FramePump {
     /// keeps the stamp, and one that ends after it is stamped with the clock. Like the stamp of a step it is an
     /// estimate made from the display link and not a measurement of the GPU, and it is never earlier than the clock
     /// was when it was taken.
+    ///
+    /// A draw while the pump is stopped measures nothing. The app is in the background, or on its way back and not
+    /// active yet, and what the draw shows was applied while nobody looked: the time since the server stamped it is the
+    /// time the app was away and not a render time. Its cost is kept, and the stamp of those frames is dropped when the
+    /// pump starts.
     func notifyRendered(drawNs: Int64) {
+        drawHistogram.record(nanos: drawNs)
+        guard !isStopped else { return }
         let nowNs = now()
         let stampNs = lastPresentNs.map { Self.firstRefresh(from: $0, every: lastPeriodNs, notBefore: nowNs) } ?? nowNs
         marketState.markRendered(atNs: stampNs)
-        drawHistogram.record(nanos: drawNs)
     }
 
     /// Starts the frame and draw statistics over: the frame and hitch counts go back to 0 and the draw times are

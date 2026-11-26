@@ -223,6 +223,35 @@ struct FramePumpTests {
         #expect(rig.pump.tick == 2)
     }
 
+    @Test func aDrawWhileThePumpIsStoppedMeasuresNothingAndItsCostIsKept() {
+        let links = StubLinks()
+        let rig = PumpRig(nowNs: 5_000_000_000, mediaNow: 100.0, makeLink: { links.make($0, $1) })
+        rig.pump.start()
+        defer { rig.pump.stop() }
+        rig.apply(seq: 1, sendNs: 4_990_000_000)
+        rig.pump.step(timestamp: 100.0, targetTimestamp: 100.016, duration: 0.016)
+        rig.pump.stop()
+
+        // A frame arrives after the last step and the app is away for half a minute. On the way back the chart draws,
+        // before the display link starts again.
+        rig.apply(seq: 2, sendNs: 4_995_000_000)
+        rig.clock.set(35_000_000_000)
+        rig.pump.notifyRendered(drawNs: 1_000_000)
+
+        // Nobody saw that frame when it arrived, so the draw measures nothing: no sample, and nothing clamped. What
+        // the draw cost is still kept.
+        #expect(rig.latency.summary(.tickToRender) == summary(of: [26_000_000]))
+        #expect(rig.latency.summary(.tickToRender).clamped == 0)
+        #expect(rig.pump.drawCost == summary(of: [1_000_000]))
+
+        // After the start the frame is not measured either, and the tick moves for it.
+        rig.media.set(130.0)
+        rig.pump.start()
+        rig.pump.step(timestamp: 130.0, targetTimestamp: 130.016, duration: 0.016)
+        #expect(rig.latency.summary(.tickToRender) == summary(of: [26_000_000]))
+        #expect(rig.pump.tick == 2)
+    }
+
     @Test func aFrameAppliedAfterAStartIsMeasuredAtTheNextStep() {
         let links = StubLinks()
         let rig = PumpRig(nowNs: 5_000_000_000, mediaNow: 100.0, makeLink: { links.make($0, $1) })
