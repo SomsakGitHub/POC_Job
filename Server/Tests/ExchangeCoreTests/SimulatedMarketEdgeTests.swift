@@ -2,7 +2,7 @@ import Testing
 import TradeCore
 @testable import ExchangeCore
 
-/// Inputs the brief does not list: unknown symbols, time that does not move forward, rates that make no sense, a long
+/// Inputs outside the usual range: unknown symbols, time that does not move forward, rates that make no sense, a long
 /// sleep, extreme times and degenerate symbols. A nested suite, so `--filter SimulatedMarketTests` runs it too.
 extension SimulatedMarketTests {
     struct Edges {

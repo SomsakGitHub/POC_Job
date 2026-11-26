@@ -30,7 +30,7 @@ struct LabLayoutTests {
         LatencyHUD(rows: Array(rows(summary).prefix(count))).padding(.horizontal, LayoutRig.margin)
     }
 
-    /// One row as a first draft would lay it out: everything on one line, whatever the width and the text size.
+    /// One row in a naive layout: everything on one line, whatever the width and the text size.
     private func naiveRow(_ row: LatencyTableRow) -> some View {
         HStack {
             Text(row.title).font(.footnote)
@@ -63,7 +63,7 @@ struct LabLayoutTests {
         let naiveNarrow = LayoutRig.height(of: naive, at: .accessibility5, width: LayoutRig.screenWidth)
         let regular = LayoutRig.height(of: table(large, rows: 1), at: .large, width: LayoutRig.screenWidth)
 
-        #expect(naiveNarrow > naiveWide + 1, "the control: the first draft is \(naiveWide) pt, then \(naiveNarrow) pt")
+        #expect(naiveNarrow > naiveWide + 1, "the control: the naive layout is \(naiveWide) pt, then \(naiveNarrow) pt")
         #expect(regular > 20, "the control: the table has height at the regular size, \(regular) pt")
         #expect(wide > 3 * regular, "the largest size is another layout: \(regular) pt and \(wide) pt")
         #expect(narrow <= wide + 1, "in a wide column the row is \(wide) pt tall, in a narrow one \(narrow) pt")
@@ -112,12 +112,12 @@ struct LabLayoutTests {
         let perRow = (six - one) / 5
         let line = lineHeight(at: .large)
 
-        // The control: a first draft that sets a metric, its figures and its clamped count in one row does not fit.
+        // The control: a naive layout that sets a metric, its figures and its clamped count in one row does not fit.
         let naive = naiveRow(LatencyTableRow(metric: .orderServerProcessing, summary: large))
         let naiveNarrow = LayoutRig.height(of: naive, at: .large, width: LayoutRig.screenWidth)
         let naiveWide = LayoutRig.height(of: naive, at: .large, width: 1_000)
 
-        #expect(naiveNarrow > naiveWide + 1, "the control: the first draft is \(naiveWide) pt, then \(naiveNarrow) pt")
+        #expect(naiveNarrow > naiveWide + 1, "the control: the naive layout is \(naiveWide) pt, then \(naiveNarrow) pt")
         #expect(line > 10, "the control: a line of the table's text is \(line) pt")
         #expect(perRow > 0.8 * line, "the control: a row has a line's height at least, \(perRow) pt of \(line) pt")
         #expect(perRow < 1.8 * line, "a row is one line: \(perRow) pt where a line is \(line) pt")
@@ -142,7 +142,7 @@ struct LabLayoutTests {
         // What the row is made of, each on a line of its own with the whole width.
         let label = Text(title).font(.subheadline).padding(.horizontal, LayoutRig.margin)
         let figure = Text(value).font(.subheadline.monospacedDigit()).padding(.horizontal, LayoutRig.margin)
-        // A first draft: the label above the figure, whatever the text size.
+        // A naive layout: the label above the figure, whatever the text size.
         let naive = VStack(alignment: .leading) {
             Text(title)
             Text(value)
@@ -162,7 +162,7 @@ struct LabLayoutTests {
         #expect(labelAtLargest > labelAtRegular, "the control: the text is larger at the largest size")
         #expect(
             naiveAtRegular > 1.7 * labelAtRegular,
-            "the control: a first draft that stacks them always takes two lines, \(naiveAtRegular) pt"
+            "the control: a naive layout that stacks them always takes two lines, \(naiveAtRegular) pt"
         )
         #expect(
             atRegular < 1.3 * labelAtRegular,

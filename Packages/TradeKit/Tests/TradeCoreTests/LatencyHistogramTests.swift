@@ -23,7 +23,7 @@ private func isWithinFivePercent(_ value: Int64?, of expected: Int64) -> Bool {
 }
 
 struct LatencyHistogramTests {
-    // MARK: The brief's cases
+    // MARK: The reference cases
 
     @Test func percentilesOfOneToAThousandMicrosecondsAreWithinFivePercent() {
         let histogram = recorded((1...1000).map { Int64($0) * microsecond })
@@ -148,7 +148,7 @@ struct LatencyHistogramTests {
 
     /// The accuracy promise for the whole range: for every sample from 0 to 10 s (every nanosecond up to 5 us,
     /// then a sweep 0.1% apart, and both sides of every power of two, where the bucket width changes) the reading is
-    /// never below the sample, never more than 5% above it (the brief's bound) and in fact less than 1/32 above
+    /// never below the sample, never more than 5% above it and in fact less than 1/32 above
     /// it, and exact below 64 ns.
     @Test func everySampleReadsBackWithinItsBucketWidth() {
         var samples: [Int64] = Array(0...5_000)

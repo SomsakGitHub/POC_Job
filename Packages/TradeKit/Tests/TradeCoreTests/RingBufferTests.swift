@@ -28,7 +28,7 @@ struct RingBufferTests {
         #expect(ring.count == 3)
     }
 
-    /// The brief's case: capacity 3 after five appends holds the last three, oldest first.
+    /// The reference case: capacity 3 after five appends holds the last three, oldest first.
     @Test func capacityThreeAfterFiveAppendsKeepsTheLastThreeInOrder() {
         var ring = RingBuffer<Int>(capacity: 3)
 

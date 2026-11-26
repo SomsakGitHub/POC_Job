@@ -159,7 +159,7 @@ struct LatencyRecorderTests {
 }
 
 struct LatencyMetricTests {
-    @Test func hasTheSixMetricsInTheBriefsOrder() {
+    @Test func hasTheSixMetricsFromTheFeedToTheOrders() {
         #expect(LatencyMetric.allCases == [
             .tickToApp, .tickToApplied, .tickToRender, .orderSubmitToAck, .orderServerProcessing, .orderSubmitToFill,
         ])

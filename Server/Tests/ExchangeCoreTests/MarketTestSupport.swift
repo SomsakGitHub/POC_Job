@@ -7,7 +7,7 @@ let marketStartMs: Int64 = 1_700_000_123_456
 
 let catalogSymbols = SymbolCatalog.defaultSymbols
 
-/// PTT, the symbol later tasks open by name. (The catalog tests pin that it is there, and first.)
+/// PTT, the symbol the app opens by name with `--open-symbol PTT`. (The catalog tests pin that it is there, and first.)
 let ptt = catalogSymbols.first { $0.ticker == "PTT" } ?? catalogSymbols[0]
 
 /// The default market (the twelve catalog symbols, seed 42), built once and shared. A market is a value type, so a test

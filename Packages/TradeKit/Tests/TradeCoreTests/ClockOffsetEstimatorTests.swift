@@ -19,8 +19,8 @@ struct ClockOffsetEstimatorTests {
         #expect(estimator.bestRttNs == nil)
     }
 
-    /// The brief's example: a 10 ms round trip and then a 2 ms one, both showing the server 5 ms ahead.
-    @Test func theBriefsExample() {
+    /// The reference example: a 10 ms round trip and then a 2 ms one, both showing the server 5 ms ahead.
+    @Test func theShorterRoundTripIsKeptAndBothGiveTheSameOffset() {
         var estimator = ClockOffsetEstimator()
         add(to: &estimator, sendAt: 1_000_000_000, rtt: 10 * millisecond, offset: 5 * millisecond)
         add(to: &estimator, sendAt: 2_000_000_000, rtt: 2 * millisecond, offset: 5 * millisecond)

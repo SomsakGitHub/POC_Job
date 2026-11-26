@@ -35,8 +35,8 @@ private func nanoseconds(of text: String) -> Int128 {
 }
 
 struct LatencyFormatTests {
-    /// The brief's examples, with its symbols copied byte for byte.
-    @Test func theBriefsExamples() {
+    /// The reference examples, one per unit and the dash for no data, with the symbols copied byte for byte.
+    @Test func eachUnitAndTheNoDataDashAreFormattedAsExpected() {
         #expect(LatencyFormat.string(ns: nil) == "—")
         #expect(LatencyFormat.string(ns: 0) == "0 ns")
         #expect(LatencyFormat.string(ns: 950) == "0.95 µs")

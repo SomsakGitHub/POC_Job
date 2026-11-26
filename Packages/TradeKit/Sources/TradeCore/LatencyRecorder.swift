@@ -1,7 +1,7 @@
 import Synchronization
 
 /// What is measured. Times are wall-clock nanoseconds (`WallClock`); "server time" is the timestamp the server put on
-/// the frame or event before sending it (design spec 6.5). The raw values are the case names.
+/// the frame or event before sending it. The raw values are the case names.
 public enum LatencyMetric: String, CaseIterable, Sendable, Codable {
     /// Server time to the WebSocket frame being received by the app.
     case tickToApp
@@ -12,7 +12,7 @@ public enum LatencyMetric: String, CaseIterable, Sendable, Codable {
     /// Just before `SubmitOrder` is called to its response arriving: the whole round trip.
     case orderSubmitToAck
     /// The server's own part of that round trip: its ack time minus its receive time. Reported apart from the round
-    /// trip (spec 6.5), so the two can be told apart.
+    /// trip, so the two can be told apart.
     case orderServerProcessing
     /// Just before `SubmitOrder` is called to the fill event arriving on the stream.
     case orderSubmitToFill

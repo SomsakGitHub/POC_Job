@@ -13,7 +13,7 @@ struct SymbolCatalogTests {
         #expect(symbols.first?.ticker == "PTT")
     }
 
-    /// PTT and AOT are in the catalog: later tasks open PTT by name (`--open-symbol PTT`) and the tests there use it.
+    /// PTT and AOT are in the catalog: the app opens PTT by name (`--open-symbol PTT`) and the tests of that launch argument use it.
     @Test func tickersAreUniqueUppercaseLatinAndIncludePTTAndAOT() {
         let tickers = symbols.map(\.ticker)
 
@@ -26,8 +26,9 @@ struct SymbolCatalogTests {
         }
     }
 
-    /// The design forbids naming one particular bank, or any of its brands, anywhere in the app, and the project's last
-    /// check greps the sources for that name. So the words are spelled in pieces here and never as one literal. No
+    /// This app names no bank brand of its own: one particular bank, and any of its brands, is named nowhere in it, and a
+    /// search of the sources for that name must find nothing. So the words are spelled in pieces here and never as one
+    /// literal. No
     /// field of any symbol may carry one: not as a ticker, and not inside an English or a Thai name. The Latin
     /// spellings are matched case-insensitively.
     @Test func noFieldNamesTheForbiddenBank() {

@@ -85,7 +85,7 @@ struct SimulatedMarketTests {
 
     // MARK: - Prices
 
-    /// The brief's 100,000-step run: five simulated minutes at the default rate (volatility regimes last about twenty
+    /// A long run of 100,000 steps: five simulated minutes at the default rate (volatility regimes last about twenty
     /// seconds, so each symbol changes regime many times) followed by twenty seconds at the stress rate, 192,000 ticks
     /// in all. After every call, every returned quote and its book obey every rule in `problems`, and the quote that
     /// came back is the one `quote(_:)` reports.

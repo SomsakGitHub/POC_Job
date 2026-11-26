@@ -19,7 +19,7 @@ struct HitchDetectorTests {
         #expect(detector.hitches == 0)
     }
 
-    // MARK: The brief's cases
+    // MARK: The reference cases
 
     /// The first call has no previous frame to measure against, so it counts as neither a frame nor a hitch, even if
     /// its interval would be a hitch.

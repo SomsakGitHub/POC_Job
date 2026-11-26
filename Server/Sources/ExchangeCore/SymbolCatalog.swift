@@ -29,8 +29,8 @@ public enum SymbolCatalog: Sendable {
     /// spread over five tick sizes (10, 25, 50, 100 and 200 satang), and several price bands straddle a change of tick
     /// size (DELTA at 100.00 baht, KTB and BDMS at 25.00), so the simulated walk has to cross one.
     ///
-    /// No ticker or name here refers to the bank (or any of its brands) whose name the design forbids anywhere in the
-    /// app, and the catalog tests scan every field for it.
+    /// This app names no bank brand of its own: no ticker or name here refers to one particular bank or any of its
+    /// brands, and the catalog tests scan every field for it.
     public static let defaultSymbols: [SymbolInfo] = [
         symbol(1, "PTT", "ปตท.", "PTT Public Company", satang: 3425),  // 34.25 baht
         symbol(2, "AOT", "ท่าอากาศยานไทย", "Airports of Thailand", satang: 5800),  // 58.00

@@ -2,7 +2,7 @@ import Testing
 import TradeCore
 
 struct ReconnectBackoffTests {
-    // MARK: The brief's table (defaults: 250 ms base, 10 s cap)
+    // MARK: The reference table (defaults: 250 ms base, 10 s cap)
 
     /// With the full delay (jitter 1.0): 250 ms doubling per attempt until it reaches the 10 s cap, exactly.
     @Test(arguments: [

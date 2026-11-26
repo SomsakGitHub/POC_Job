@@ -8,7 +8,7 @@ import TradeCore
 /// and a line for each of six metrics and the groups are six groups of five lines, so a height says which of the two
 /// was laid out. The matrix is every width from the narrowest phone to the widest, the text sizes around the change of
 /// shape, and figures from "no samples" to the widest the formatter writes. A shape that is chosen from how wide the
-/// figures on show are changes from one set of figures to the next, and the control, a first draft that chooses it so,
+/// figures on show are changes from one set of figures to the next, and the control, a naive layout that chooses it so,
 /// does. What a height cannot tell is read from a drawing of the table: the templates that size the columns must not
 /// show, and a figure that is longer than its column must shrink and not be cut.
 @MainActor
@@ -144,42 +144,42 @@ struct LatencyHUDLayoutTests {
         func shape(of view: some View, at size: DynamicTypeSize) -> LatencyHUD.Shape {
             height(of: view, at: size, width: width) < boundary ? .table : .groups
         }
-        func firstDraft(_ figures: Figures, at size: DynamicTypeSize) -> LatencyHUD.Shape {
-            shape(of: FirstDraft(rows: rows(figures)), at: size)
+        func naive(_ figures: Figures, at size: DynamicTypeSize) -> LatencyHUD.Shape {
+            shape(of: NaiveTable(rows: rows(figures)), at: size)
         }
         func real(_ figures: Figures, at size: DynamicTypeSize) -> LatencyHUD.Shape {
             shape(of: LatencyHUD(rows: rows(figures)), at: size)
         }
 
-        // At the regular size the first draft holds the table until a figure is too wide for the width of the screen.
-        #expect(firstDraft(Self.typical, at: .large) == .table, "the control: typical figures fit beside the names")
-        #expect(firstDraft(Self.widest, at: .large) == .groups, "the control: the widest figures do not at \(width) pt")
+        // At the regular size the naive layout holds the table until a figure is too wide for the width of the screen.
+        #expect(naive(Self.typical, at: .large) == .table, "the control: typical figures fit beside the names")
+        #expect(naive(Self.widest, at: .large) == .groups, "the control: the widest figures do not at \(width) pt")
         #expect(real(Self.typical, at: .large) == .table)
         #expect(real(Self.widest, at: .large) == .table)
         // One size up it holds the table until figures that are wide enough arrive.
-        #expect(firstDraft(Self.noSamples, at: .xLarge) == .table, "the control: dashes fit")
-        #expect(firstDraft(Self.slow, at: .xLarge) == .groups, "the control: the figures of a slow server do not")
+        #expect(naive(Self.noSamples, at: .xLarge) == .table, "the control: dashes fit")
+        #expect(naive(Self.slow, at: .xLarge) == .groups, "the control: the figures of a slow server do not")
         #expect(real(Self.noSamples, at: .xLarge) == .groups)
         #expect(real(Self.slow, at: .xLarge) == .groups)
         #expect(real(Self.typical, at: .xLarge) == .groups)
     }
 
-    @Test func theFirstDraftFlipsAtTheWidthWhereTheFiguresStopFittingBesideTheNamesAndTheRealTableNeverDoes() {
+    @Test func aTableShapedByItsFiguresFlipsAtTheWidthWhereTheyStopFittingBesideTheNamesAndTheRealTableNeverDoes() {
         // The widest figures fit beside the names on the phones from 420 pt and not on the narrower ones: where the
         // control changes its shape is where the real table must not.
-        var firstDraft: [CGFloat: LatencyHUD.Shape] = [:]
+        var naive: [CGFloat: LatencyHUD.Shape] = [:]
         var real: [CGFloat: LatencyHUD.Shape] = [:]
         let widestRows = rows(Self.widest)
         for width in Self.widths {
             let boundary = boundary(width: width)
-            firstDraft[width] = height(of: FirstDraft(rows: widestRows), at: .large, width: width) < boundary
+            naive[width] = height(of: NaiveTable(rows: widestRows), at: .large, width: width) < boundary
                 ? .table : .groups
             real[width] = height(of: LatencyHUD(rows: widestRows), at: .large, width: width) < boundary
                 ? .table : .groups
         }
 
-        #expect(Self.widths.filter { firstDraft[$0] == .groups } == [375, 390, 393, 402], "\(firstDraft)")
-        #expect(Self.widths.filter { firstDraft[$0] == .table } == [420, 430, 440], "the control: \(firstDraft)")
+        #expect(Self.widths.filter { naive[$0] == .groups } == [375, 390, 393, 402], "\(naive)")
+        #expect(Self.widths.filter { naive[$0] == .table } == [420, 430, 440], "the control: \(naive)")
         #expect(Self.widths.filter { real[$0] == .table } == Self.widths, "the real table at every width: \(real)")
     }
 
@@ -188,20 +188,20 @@ struct LatencyHUDLayoutTests {
     @Test func theTableOnThePhonesWideEnoughForTheNamesLooksAsItDidWithTypicalFigures() {
         let typicalRows = rows(Self.typical)
         for width: CGFloat in [393, 402, 420, 430, 440] {
-            let before = height(of: FirstDraft(rows: typicalRows), at: .large, width: width)
+            let before = height(of: NaiveTable(rows: typicalRows), at: .large, width: width)
             let now = height(of: LatencyHUD(rows: typicalRows), at: .large, width: width)
-            #expect(abs(before - now) < 1, "\(width) pt: the first draft was \(before) pt and the table is \(now) pt")
+            #expect(abs(before - now) < 1, "\(width) pt: the naive layout was \(before) pt and the table is \(now) pt")
         }
     }
 
-    @Test func theGroupsLookAsTheyDidWhereTheFirstDraftShowedThem() {
+    @Test func theGroupsLookAsTheyDoInATableShapedByItsFiguresWhereThatTableShowsThem() {
         let slowRows = rows(Self.slow)
         let boundary = boundary(width: 402)
         for size in [DynamicTypeSize.xLarge, .xxLarge] {
-            let before = height(of: FirstDraft(rows: slowRows), at: size, width: 402)
+            let before = height(of: NaiveTable(rows: slowRows), at: size, width: 402)
             let now = height(of: LatencyHUD(rows: slowRows), at: size, width: 402)
-            #expect(before > boundary, "the control: the first draft showed the groups at \(size), \(before) pt")
-            #expect(abs(before - now) < 1, "\(size): the first draft was \(before) pt and the groups are \(now) pt")
+            #expect(before > boundary, "the control: the naive layout showed the groups at \(size), \(before) pt")
+            #expect(abs(before - now) < 1, "\(size): the naive layout was \(before) pt and the groups are \(now) pt")
         }
     }
 
@@ -354,9 +354,9 @@ struct LatencyHUDLayoutTests {
 
     // MARK: Controls, which do what the table must not
 
-    /// The table as a first draft lays it out: `ViewThatFits` takes the table when the figures that are on show fit
+    /// The table in a naive layout: `ViewThatFits` takes the table when the figures that are on show fit
     /// beside the names in the width the column has, and the groups when they do not.
-    private struct FirstDraft: View {
+    private struct NaiveTable: View {
         /// The six rows.
         let rows: [LatencyTableRow]
 
