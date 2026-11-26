@@ -1,0 +1,23 @@
+Hitch checks with 200 ms injected (26 November 2026)
+
+What was run: the Release app built from commit f7af071, on the iPhone 18 Pro simulator (iOS 27.2), against the Release
+exchange server on the same Mac. Lab: extraLatencyMs 200, everything else at its default. The app was launched with
+--print-latency, and with --open-symbol PTT in every run except the first. Each run lasted 32 seconds. The figure is the
+last line the app printed, which is cumulative since the launch.
+
+The two "busy" runs differ from the others in one way only: eight busy-loop processes kept eight of the Mac's cores busy
+for the whole run.
+
+| Run | Screen | Other load | Frames | Hitches | Hitches / frames |
+| --- | --- | --- | ---: | ---: | ---: |
+| 1 | list only | none | 1,778 | 15 | 0.84 % |
+| 2 | PTT chart | none | 1,708 | 79 | 4.63 % |
+| 3 | PTT chart | none | 1,696 | 95 | 5.60 % |
+| 4 | PTT chart | eight cores kept busy | 1,761 | 32 | 1.82 % |
+| 5 | PTT chart | eight cores kept busy | 1,751 | 39 | 2.23 % |
+
+In all five runs tickToApp and tickToRender had the same shape: a p50 of about 205 and 231 ms, and no sample clamped.
+
+These are scripted one-off runs. They were not made by Scripts/measure.sh, no verdict rule was applied to them, and they
+are not in the generated tables. For comparison, the recorded release-latency200 run has 90 hitches in 1,401 frames
+(6.42 %).

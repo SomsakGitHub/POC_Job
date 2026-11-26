@@ -92,6 +92,11 @@ make stop
 stops the server that `make demo` started (its process id is in `build/server.pid`) and the app. A server that was
 already running before `make demo` is left alone.
 
+The app finds the server at 127.0.0.1, ports 18080 and 18051, unless the environment variables `TRADEPULSE_HOST`,
+`TRADEPULSE_REST_PORT`, `TRADEPULSE_GRPC_PORT` and `TRADEPULSE_TOKEN` say otherwise; for an app on the simulator they
+are set as `SIMCTL_CHILD_<name>` in the environment of `xcrun simctl launch`. The server listens on 127.0.0.1 only and
+has no flag to change that (its flags set the two ports, the seed, the event log's length and the commission).
+
 The same, step by step:
 
 ```
@@ -102,8 +107,8 @@ make test          # the three test suites, one after the other
 ```
 
 `make test` runs `swift test --package-path Packages/TradeKit`, `swift test --package-path Server` and the app's tests
-with `xcodebuild test`, and stops at the first failure. Its last run ended with exit code 0 and
-1,492 tests passed: 508 in TradeKit, 388 in the server and 596 in the app.
+with `xcodebuild test`, and stops at the first failure. Its last run, on the code as it is now, ended with exit code 0
+and 1,497 tests passed: 509 in TradeKit, 388 in the server and 600 in the app.
 
 To measure, with the server running (`make server` in another terminal) and the app built:
 
@@ -226,8 +231,8 @@ where it came from, is in "What `clamped` shows" in `docs/results/summary.md`.
 <!-- tables:end -->
 
 The verdicts above follow the printed numbers by the rule written with them; the full discussion is in
-`docs/results/summary.md`. All four rows the first target is judged on are met: the printed p99 is 1.95 frames in each,
-and no sample is clamped. By construction that is close to the target, so those rows say that the app keeps up with the
+`docs/results/summary.md`. All four rows the first target is judged on are met: the printed p99 is 1.95 frames in each
+(the four rows ran at 60.0 fps, where two frames are 33.33 ms), and no sample is clamped. By construction that is close to the target, so those rows say that the app keeps up with the
 display, not that it beats the target by a margin. The `orderSubmitToAck` target is met by a wide margin: a p99 of 2.16 ms
 against 50 ms.
 
@@ -253,7 +258,7 @@ How to read the numbers:
 - **`orderSubmitToAck`, `orderServerProcessing`, `orderSubmitToFill`.** From just before the app calls `SubmitOrder` to its
   response, the server's own processing time that comes back with the response, and from the same start to the fill event
   arriving on the stream. The app submits no order by itself: these are empty ("—", never 0 ms) in a run that sent none.
-  The orders of the `orders` and `orders200` runs were sent by hand through the ticket.
+  The orders of the `orders` and `orders200` runs were sent by taps on the ticket in the Simulator.
 - **`clamped`.** A `tickToRender` sample below 0 (a render time that lies before the server's own stamp on the tick it
   shows) or above 10 seconds. It is counted apart and a negative one enters the distribution as 0, so it cannot lower a
   percentile unseen. No `tickToRender` sample is clamped in any run here. An earlier version of the app clamped a large
@@ -267,6 +272,13 @@ All of them except `11-ios18-smoke` are of the `iPhone 18 Pro` simulator (iOS 27
 real server, in `docs/results/screens/`. `11-ios18-smoke` is of an `iPhone 16 Pro` simulator on iOS 18.6 (see Minimum OS).
 The two reconnect pictures with the banner are frames of screen recordings, because a screenshot takes about half a
 second to write and the banner is gone by then.
+
+The latency figures in these pictures are live and cumulative since that session's launch, not those of the recorded
+runs: the Lab's table counts 4,023 Tick to screen samples in `08-lab-table`, 7,513 in `09-lab-stress`, 9,585 in
+`07-reconnect` and 11,078 in `07-reconnect-after`, and the chip in `02-chart-latency-chip` and `10-chart-dark` shows the
+same kind of running figure. Each of these six pictures shows a Tick to screen p99 of 33.55 ms, one histogram bucket above
+the highest p99 of the recorded runs (33.03 ms) and 2.01 frames at 60 Hz, which the rule under "Targets and verdicts"
+would call "at the limit".
 
 | | | |
 | --- | --- | --- |
@@ -317,7 +329,14 @@ Measurement
   is in the foreground, and the frame-rate meter in the Lab shows "—" for its first sample after a return to the Lab.
 - With 200 ms injected, the display link's hitches are 6.42 % of the frames in `release-latency200` and 6.37 % in
   `orders200`, against 0.07 to 0.84 % in the other Release runs; the Debug run with the same setting, `latency200`, has
-  0.34 %. The cause was not established.
+  0.34 %. Five extra runs of 32 seconds with the same setting, kept in `docs/results/hitch-checks.txt` (they are
+  one-off runs outside the recorded set, so they are not in the tables), had far fewer hitches with only the list on
+  screen than with the chart open, and less than half as many with the Mac's other cores kept busy by another process.
+  That points at the host's idle behaviour with a feed of about 5 frames a second rather than at work the app does; it
+  does not prove it. The cause was not established.
+- A frame that reaches the app late because the app was suspended in the background is recorded with its delay in
+  `tickToApp` and `tickToApplied`. The render stamp of a frame that arrived while the display link was stopped is
+  dropped, so `tickToRender` does not record the time away.
 
 Server
 
@@ -325,10 +344,9 @@ Server
   their defaults. A cancel for an order of the old process that reaches the new one before the app has seen the new epoch
   could hit a new order (the app drops the old rows on an epoch change and never retries a cancel after a reconnect).
 - The cash figure after an epoch change stays the old one until the next ledger entry or the next fetch on connect.
-- Orders older than the server's log retention are not shown after an app restart.
+- Orders older than the server's log retention are not shown after an app restart. Such an order that still rests is
+  live on the server all the same and holds its cash or shares; the app cannot cancel it, so it ends only when it fills or with Reset account.
 - An oversized body sent to the lab gets a bare 413. The server stops hard on a signal, with no graceful drain.
-- One server test, `GrpcOrderTests.grpcShutdownBeforeServeReturns`, fails now and then with a start-up stall when about a
-  hundred tests build a full market at once. It passed in the `make test` run recorded in `docs/results/summary.md`.
 
 Feed
 
@@ -391,7 +409,7 @@ Server/                       Swift package: the mock exchange
   Sources/ExchangeServerKit/  the REST, WebSocket and gRPC server and the lab controls
   Sources/ExchangeServer/     the executable (`make server`)
 Scripts/                      measure.sh and summarize.py
-docs/superpowers/             the design specification and the implementation plan
+docs/superpowers/             the specification and the implementation plan
 docs/results/                 the measurements: *.jsonl, *.run.json, feed-probe.py and .json, screens/, summary.md
 Makefile                      server, app, app-release, test, demo, stop
 ```
@@ -399,7 +417,7 @@ Makefile                      server, app, app-release, test, demo, stop
 ## Documents
 
 - [`docs/superpowers/specs/2026-11-22-tradepulse-poc-design.md`](docs/superpowers/specs/2026-11-22-tradepulse-poc-design.md):
-  the design specification (in Thai): goals, the two-minute demo, the architecture, the metrics and their targets.
+  the specification (in Thai): goals, the two-minute demo, the architecture, the metrics and their targets.
 - [`docs/superpowers/plans/2026-11-22-tradepulse-poc.md`](docs/superpowers/plans/2026-11-22-tradepulse-poc.md): the
   implementation plan.
 - [`docs/results/summary.md`](docs/results/summary.md): the measurements in full, with the method, the run records, the
