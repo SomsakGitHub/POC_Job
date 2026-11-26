@@ -29,9 +29,9 @@ once after the measurements on the code as it is now; it ended with exit code 0 
 | --- | --- | ---: |
 | TradeKit | `swift test --package-path Packages/TradeKit` | 509 (three test runs: 248, 229 and 32) |
 | Server | `swift test --package-path Server` | 388 (two test runs: 190 and 198) |
-| App | `xcodebuild test -project App/TradePulse.xcodeproj -scheme TradePulse -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.2' -derivedDataPath build/DerivedData` | 600 in 46 suites |
+| App | `xcodebuild test -project App/TradePulse.xcodeproj -scheme TradePulse -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.2' -derivedDataPath build/DerivedData` | 601 in 46 suites |
 
-That is 1,497 tests. The server's tests let at most three of them build a server, and with it a full simulated market,
+That is 1,498 tests. The server's tests let at most three of them build a server, and with it a full simulated market,
 at the same time, and the test of a gRPC shutdown that comes before the service starts waits up to a minute for it to
 return. With that, `swift test --package-path Server` passed ten runs in a row on the final code, each taking 64 to 68
 seconds of wall time.

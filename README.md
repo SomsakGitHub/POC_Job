@@ -108,7 +108,7 @@ make test          # the three test suites, one after the other
 
 `make test` runs `swift test --package-path Packages/TradeKit`, `swift test --package-path Server` and the app's tests
 with `xcodebuild test`, and stops at the first failure. Its last run, on the code as it is now, ended with exit code 0
-and 1,497 tests passed: 509 in TradeKit, 388 in the server and 600 in the app.
+and 1,498 tests passed: 509 in TradeKit, 388 in the server and 601 in the app.
 
 To measure, with the server running (`make server` in another terminal) and the app built:
 
