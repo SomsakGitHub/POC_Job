@@ -166,10 +166,12 @@ struct GrpcOrderTests {
 
     /// Regression: a graceful shutdown that reaches the gRPC service before `serve()` has started
     /// must not hang the service (it used to wait forever for a listening address).
-    /// `testGracefulShutdown` makes the early-shutdown ordering deterministic.
-    @Test func grpcShutdownBeforeServeReturns() async {
+    /// `testGracefulShutdown` makes the early-shutdown ordering deterministic. The test asks only whether `run()`
+    /// returns at all, so it waits a full minute before it calls the service hung: a run that keeps every thread busy
+    /// can delay an answer by seconds, and a late answer is not a wrong one.
+    @Test(.timeLimit(.minutes(2))) func grpcShutdownBeforeServeReturns() async {
         let service = GRPCServerService(host: "127.0.0.1", port: 0, services: [], onListening: { _ in })
-        let returned = await finishes(within: .seconds(10)) {
+        let returned = await finishes(within: .seconds(60)) {
             await testGracefulShutdown { trigger in
                 trigger.triggerGracefulShutdown()
                 _ = try? await service.run()

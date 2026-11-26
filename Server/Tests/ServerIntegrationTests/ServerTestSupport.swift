@@ -84,13 +84,65 @@ struct RunningServer: Sendable {
     }
 }
 
+/// Lets at most `width` holders in at once; the others wait, in the order they came, for a permit to be released.
+final class Gate: Sendable {
+    private struct State {
+        var running = 0
+        var waiting: [CheckedContinuation<Void, Never>] = []
+    }
+
+    private let width: Int
+    private let state = Mutex(State())
+
+    init(width: Int) {
+        self.width = width
+    }
+
+    /// Returns once the caller holds a permit; each call must be matched by one `release()`.
+    func acquire() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let admitted = state.withLock { state in
+                guard state.running < width else {
+                    state.waiting.append(continuation)
+                    return false
+                }
+                state.running += 1
+                return true
+            }
+            if admitted { continuation.resume() }
+        }
+    }
+
+    /// Hands the permit to the longest waiter, or gives it back when nobody waits.
+    func release() {
+        let next = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            guard !state.waiting.isEmpty else {
+                state.running -= 1
+                return nil
+            }
+            return state.waiting.removeFirst()
+        }
+        next?.resume()
+    }
+}
+
+/// Building a server builds its whole simulated market, a few hundred milliseconds of work that does not yield. Run
+/// unchecked, dozens of tests start one at the same moment and every thread of the pool is busy for seconds, so that a
+/// test which only waits for something is starved past its bound. This gate lets a few constructions run at once.
+let serverConstructionGate = Gate(width: max(1, min(3, ProcessInfo.processInfo.activeProcessorCount / 2)))
+
 /// Starts a server on ephemeral ports (or the ports `config` names) and returns once it is listening on both.
 /// Fails, instead of hanging, if `run()` fails or the server is not listening within `startTimeout`. `nowNs` replaces
 /// the wall clock the app reads, for a test that has to know exactly what the clock said.
 func startServer(
     config: ServerConfig = .ephemeral, nowNs: (@Sendable () -> Int64)? = nil, startTimeout: Duration = patience
 ) async throws -> RunningServer {
-    let app = nowNs.map { ExchangeServerApp(config: config, nowNs: $0) } ?? ExchangeServerApp(config: config)
+    await serverConstructionGate.acquire()
+    let app: ExchangeServerApp
+    do {
+        defer { serverConstructionGate.release() }
+        app = nowNs.map { ExchangeServerApp(config: config, nowNs: $0) } ?? ExchangeServerApp(config: config)
+    }
 
     // First of: the server reports its ports, `run()` fails, or the timeout fires.
     let (started, startup) = AsyncThrowingStream<BoundPorts, any Error>.makeStream()

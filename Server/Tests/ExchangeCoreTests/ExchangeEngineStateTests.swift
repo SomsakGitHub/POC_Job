@@ -2,12 +2,14 @@ import Testing
 import TradeCore
 @testable import ExchangeCore
 
-/// Waits, a bounded number of times, for the engine to drop the streams that ended; returns the count it settled at.
+/// Waits up to 30 seconds for the engine to drop the streams that ended, reading the count every 10 ms; returns the
+/// count it settled at.
 private func settledStreamCount(_ engine: ExchangeEngine) async -> Int {
-    for _ in 0..<10_000 {
+    let deadline = ContinuousClock.now + .seconds(30)
+    while ContinuousClock.now < deadline {
         let count = await engine.liveStreamCount
         if count == 0 { return 0 }
-        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(10))
     }
     return await engine.liveStreamCount
 }
