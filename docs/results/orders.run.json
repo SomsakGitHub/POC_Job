@@ -1,0 +1,18 @@
+{
+  "label": "orders",
+  "build": "Release",
+  "device": "iPhone 18 Pro",
+  "os": "27.2",
+  "seconds": 240,
+  "symbols": 12,
+  "lab": {
+    "dropUpdates": false,
+    "extraLatencyMs": 0,
+    "jitterMs": 0,
+    "rateMultiplier": 1,
+    "stress": false
+  },
+  "startedAt": "2026-11-26T05:13:37Z",
+  "cpuIdlePercentBeforeRun": 86.93,
+  "cpuIdlePercentAfterRun": 85.16
+}

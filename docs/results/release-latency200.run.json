@@ -1,0 +1,18 @@
+{
+  "label": "release-latency200",
+  "build": "Release",
+  "device": "iPhone 18 Pro",
+  "os": "27.2",
+  "seconds": 30,
+  "symbols": 12,
+  "lab": {
+    "dropUpdates": false,
+    "extraLatencyMs": 200,
+    "jitterMs": 0,
+    "rateMultiplier": 1,
+    "stress": false
+  },
+  "startedAt": "2026-11-26T05:11:34Z",
+  "cpuIdlePercentBeforeRun": 82.39,
+  "cpuIdlePercentAfterRun": 89.74
+}

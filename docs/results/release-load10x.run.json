@@ -1,0 +1,18 @@
+{
+  "label": "release-load10x",
+  "build": "Release",
+  "device": "iPhone 18 Pro",
+  "os": "27.2",
+  "seconds": 30,
+  "symbols": 12,
+  "lab": {
+    "dropUpdates": false,
+    "extraLatencyMs": 0,
+    "jitterMs": 0,
+    "rateMultiplier": 10,
+    "stress": false
+  },
+  "startedAt": "2026-11-26T05:35:00Z",
+  "cpuIdlePercentBeforeRun": 82.6,
+  "cpuIdlePercentAfterRun": 92.4
+}

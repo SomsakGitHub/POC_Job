@@ -1,0 +1,18 @@
+{
+  "label": "baseline",
+  "build": "Debug",
+  "device": "iPhone 18 Pro",
+  "os": "27.2",
+  "seconds": 30,
+  "symbols": 12,
+  "lab": {
+    "dropUpdates": false,
+    "extraLatencyMs": 0,
+    "jitterMs": 0,
+    "rateMultiplier": 1,
+    "stress": false
+  },
+  "startedAt": "2026-11-26T05:01:35Z",
+  "cpuIdlePercentBeforeRun": 70.52,
+  "cpuIdlePercentAfterRun": 86.30
+}
