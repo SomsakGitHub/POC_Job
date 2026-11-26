@@ -39,6 +39,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tradepulse.poc.TradePulse
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: false
+        # Below iOS 26 the app links libswiftCompatibilitySpan.dylib, which the iOS 18 runtimes do not have, so it has
+        # to be in the app. The step that copies the Swift libraries leaves it out unless it is told to bring it:
+        # ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES does not make it.
+        OTHER_SWIFT_STDLIB_TOOL_FLAGS: "--back-deploy-swift-span"
   TradePulseTests:
     type: bundle.unit-test
     platform: iOS
