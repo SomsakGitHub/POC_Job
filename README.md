@@ -277,8 +277,8 @@ The latency figures in these pictures are live and cumulative since that session
 runs: the Lab's table counts 4,023 Tick to screen samples in `08-lab-table`, 7,513 in `09-lab-stress`, 9,585 in
 `07-reconnect` and 11,078 in `07-reconnect-after`, and the chip in `02-chart-latency-chip` and `10-chart-dark` shows the
 same kind of running figure. Each of these six pictures shows a Tick to screen p99 of 33.55 ms, one histogram bucket
-above the highest p99 of the recorded runs (33.03 ms) and 2.01 frames at 60 Hz, which the rule under "Targets and
-verdicts" would call "at the limit".
+above the highest p99 of the recorded runs without injected latency (33.03 ms) and 2.01 frames at 60 Hz, which the rule
+under "Targets and verdicts" would call "at the limit".
 
 | | | |
 | --- | --- | --- |
