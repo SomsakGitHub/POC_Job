@@ -60,7 +60,8 @@ struct AmountLayoutTests {
 
     /// A holding of PTT worth `value` satang, as the portfolio draws it.
     private func holding(worth value: Int64) -> PositionRowView {
-        PositionRowView(row: PositionRow(id: 1, ticker: "PTT", quantity: 100, last: satang(5), marketValueSatang: value))
+        let row = PositionRow(id: 1, ticker: "PTT", quantity: 100, last: satang(5), marketValueSatang: value)
+        return PositionRowView(row: row)
     }
 
     @Test func aCashChangeAndAPositionValueOfTenMillionBahtStayOnOneLineAtTheLargestTextSize() {
@@ -78,7 +79,8 @@ struct AmountLayoutTests {
         #expect(plainNarrow > plainWide, "the control: that amount in a plain text is broken across lines")
         #expect(largeFill <= smallFill + 1, "fills of -฿5.00 and -฿10,000,000.00: \(smallFill) pt, \(largeFill) pt")
         #expect(
-            largeHolding <= smallHolding + 1, "holdings of ฿5.00 and ฿10,000,000.00: \(smallHolding) pt, \(largeHolding) pt"
+            largeHolding <= smallHolding + 1,
+            "holdings of ฿5.00 and ฿10,000,000.00: \(smallHolding) pt, \(largeHolding) pt"
         )
     }
 

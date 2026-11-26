@@ -153,8 +153,8 @@ final class FramePump {
     /// is the stamp of the step when the draw ended before it, which is the normal case. A frame that is drawn after
     /// it is shown at the next refresh and not at one that has gone by, so a draw that ended after it is stamped with
     /// the first refresh after it that is not before the clock. With no step yet the stamp is the clock. After a step
-    /// that reported no usable frame length the grid is not known: a draw that ends at or before that step's stamp keeps the
-    /// stamp, and one that ends after it is stamped with the clock. Like the stamp of a step it is an
+    /// that reported no usable frame length the grid is not known: a draw that ends at or before that step's stamp
+    /// keeps the stamp, and one that ends after it is stamped with the clock. Like the stamp of a step it is an
     /// estimate made from the display link and not a measurement of the GPU, and it is never earlier than the clock
     /// was when it was taken.
     func notifyRendered(drawNs: Int64) {

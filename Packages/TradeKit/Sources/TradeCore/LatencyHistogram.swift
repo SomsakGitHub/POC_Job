@@ -6,7 +6,8 @@
 ///
 /// Layout, log-linear as in an HdrHistogram: each value below 64 ns has a bucket of its own; from 64 ns up, every
 /// power of two (64...127, 128...255, ...) is split into 32 equal buckets. Bucket width doubles with each octave and
-/// is never more than 1/32 (3.125%) of the bucket's lower edge, well inside 5% for the buckets between 1 us and 10 s. Samples under 1 us (0...999 ns) are legitimate and not clamped: they get the same buckets.
+/// is never more than 1/32 (3.125%) of the bucket's lower edge, well inside 5% for the buckets between 1 us and 10 s.
+/// Samples under 1 us (0...999 ns) are legitimate and not clamped: they get the same buckets.
 ///
 /// Range: 0 to 10 s. A negative sample is recorded as 0 and one over 10 s as 10 s. Both still count in `count`, and
 /// both are also counted in `clampedCount`, so a clock-skew artefact stays visible and can never make a percentile
