@@ -31,9 +31,9 @@ once after the measurements on the code as it is now; it ended with exit code 0 
 | Server | `swift test --package-path Server` | 388 (two test runs: 190 and 198) |
 | App | `xcodebuild test -project App/TradePulse.xcodeproj -scheme TradePulse -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.2' -derivedDataPath build/DerivedData` | 600 in 46 suites |
 
-That is 1,497 tests. The server's tests let at most three of them build a server, and with it a full simulated market, at
-the same time, and the test of a gRPC shutdown that comes before the service starts waits up to a minute for it to
-return. With that, `swift test --package-path Server` passed ten runs in a row on the final code, each taking 61 to 75
+That is 1,497 tests. The server's tests let at most three of them build a server, and with it a full simulated market,
+at the same time, and the test of a gRPC shutdown that comes before the service starts waits up to a minute for it to
+return. With that, `swift test --package-path Server` passed ten runs in a row on the final code, each taking 64 to 68
 seconds of wall time.
 
 ## How the runs were made
@@ -57,8 +57,8 @@ A Debug run does the same with `build/DerivedData/Build/Products/Debug-iphonesim
 mode and the injected latency of each run are in the "Lab setting" column; the build, the duration and the state of the
 machine are in the run record. The `orders` run is a Release run of 240 seconds and `orders200` a Release run of 100
 seconds with 200 ms injected. The app submits no order by itself, so orders were sent by taps on the ticket in the
-Simulator while each of those two runs was going: 102 market orders of 100 shares (76 buys and 26 sells) in `orders` and 26
-market buys of 100 shares in `orders200`.
+Simulator while each of those two runs was going: 102 market orders of 100 shares (76 buys and 26 sells) in `orders`
+and 26 market buys of 100 shares in `orders200`.
 
 `Updates/s sent` comes from `docs/results/feed-probe.py`, which opens its own market-feed connection, subscribes to every
 symbol and counts frames and symbol updates for 10 seconds at each lab setting the runs used. It is a probe of the server,
@@ -259,9 +259,11 @@ agree: the acks are in single milliseconds, nowhere near 200 ms. That run is too
 ## Spread between runs of the same setting
 
 `baseline` and `baseline-repeat` are the same Debug run made twice in a row. Their p50 is 24.64 and 25.17 ms, their p95
-31.46 and 31.46 ms and their p99 33.03 and 32.51 ms, so the p99 of two identical Debug runs was one histogram bucket apart. Their hitches were 7 and 2. The Release runs have no repeat of one setting; the four Release tick runs without
+31.46 and 31.46 ms and their p99 33.03 and 32.51 ms, so the p99 of two identical Debug runs was one histogram bucket
+apart. Their hitches were 7 and 2. The Release runs have no repeat of one setting; the four Release tick runs without
 injected latency (`release-baseline`, `release-load1k`, `release-load10x` and `release-stress`), at four different loads,
-have p99 figures within one histogram bucket of each other (32.51 to 33.03 ms). A single 30-second run is one sample of its setting.
+have p99 figures within one histogram bucket of each other (32.51 to 33.03 ms). A single 30-second run is one sample of
+its setting.
 
 ## What `clamped` shows
 
@@ -356,8 +358,8 @@ What the data show:
   delivers about five frames a second and the screen changes rarely in all three runs with 200 ms injected, but only the two
   Release runs have the hitches.
 - Without injected latency the hitches are 0.07 % to 0.84 % of the frames. The highest are `orders` (120 in 14,266, 0.84 %;
-  orders were sent by taps on the ticket in the Simulator during it) and `release-baseline` (10 in 1,479, 0.68 %). The cause was not
-  established.
+  orders were sent by taps on the ticket in the Simulator during it) and `release-baseline` (10 in 1,479, 0.68 %). The
+  cause was not established.
 - The Debug `baseline` has 7 hitches in 1,481 frames (0.47 %) and `baseline-repeat` 2 in 1,486 (0.13 %): the same
   setting and a different count, which is what the spread above is about.
 - The rate the lab is asked for is not the rate a client receives (see "Reading the tables"): the ratio of 634 to 1,008 at

@@ -232,9 +232,9 @@ where it came from, is in "What `clamped` shows" in `docs/results/summary.md`.
 
 The verdicts above follow the printed numbers by the rule written with them; the full discussion is in
 `docs/results/summary.md`. All four rows the first target is judged on are met: the printed p99 is 1.95 frames in each
-(the four rows ran at 60.0 fps, where two frames are 33.33 ms), and no sample is clamped. By construction that is close to the target, so those rows say that the app keeps up with the
-display, not that it beats the target by a margin. The `orderSubmitToAck` target is met by a wide margin: a p99 of 2.16 ms
-against 50 ms.
+(the four rows ran at 60.0 fps, where two frames are 33.33 ms), and no sample is clamped. By construction that is close
+to the target, so those rows say that the app keeps up with the display, not that it beats the target by a margin. The
+`orderSubmitToAck` target is met by a wide margin: a p99 of 2.16 ms against 50 ms.
 
 The rate the lab asks for is not the rate a client receives: the server merges the ticks of a connection into frames, so
 at 4.2x, where the lab asks for 1,008 ticks a second, a connection receives 634 updates a second. The highest rate
@@ -276,9 +276,9 @@ second to write and the banner is gone by then.
 The latency figures in these pictures are live and cumulative since that session's launch, not those of the recorded
 runs: the Lab's table counts 4,023 Tick to screen samples in `08-lab-table`, 7,513 in `09-lab-stress`, 9,585 in
 `07-reconnect` and 11,078 in `07-reconnect-after`, and the chip in `02-chart-latency-chip` and `10-chart-dark` shows the
-same kind of running figure. Each of these six pictures shows a Tick to screen p99 of 33.55 ms, one histogram bucket above
-the highest p99 of the recorded runs (33.03 ms) and 2.01 frames at 60 Hz, which the rule under "Targets and verdicts"
-would call "at the limit".
+same kind of running figure. Each of these six pictures shows a Tick to screen p99 of 33.55 ms, one histogram bucket
+above the highest p99 of the recorded runs (33.03 ms) and 2.01 frames at 60 Hz, which the rule under "Targets and
+verdicts" would call "at the limit".
 
 | | | |
 | --- | --- | --- |
@@ -345,7 +345,8 @@ Server
   could hit a new order (the app drops the old rows on an epoch change and never retries a cancel after a reconnect).
 - The cash figure after an epoch change stays the old one until the next ledger entry or the next fetch on connect.
 - Orders older than the server's log retention are not shown after an app restart. Such an order that still rests is
-  live on the server all the same and holds its cash or shares; the app cannot cancel it, so it ends only when it fills or with Reset account.
+  live on the server all the same and holds its cash or shares; the app cannot cancel it, so it ends only when it fills
+  or with Reset account.
 - An oversized body sent to the lab gets a bare 413. The server stops hard on a signal, with no graceful drain.
 
 Feed
