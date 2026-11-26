@@ -287,6 +287,24 @@ struct LabFormattingTests {
         #expect(!all.contains { $0.isEmpty })
     }
 
+    @Test func theResetDialogSaysTheServerDoesItForTheSimulatedAccountAndThatItCannotBeUndone() {
+        let message = LabLabels.resetAccountMessage
+        let lowered = message.lowercased()
+
+        #expect(
+            message == "The server resets the simulated account to its starting cash and forgets every order. "
+                + "This cannot be undone."
+        )
+        #expect(lowered.contains("the server resets"), "it happens on the server")
+        #expect(lowered.contains("simulated account"), "it is the simulated account")
+        #expect(lowered.contains("cannot be undone"), "there is no way back")
+        #expect(message.split(separator: ". ").count == 2, "two plain sentences")
+        #expect(message.hasSuffix("."))
+        for forbidden in ["stall", "freez", "froze", "heartbeat"] {
+            #expect(!lowered.contains(forbidden), "\"\(message)\" says \(forbidden)")
+        }
+    }
+
     @Test func theDropUpdatesWordsTalkAboutGapsAndNeverAboutAStall() {
         #expect(LabLabels.dropUpdates == "Drop updates (creates gaps)")
         let words = [

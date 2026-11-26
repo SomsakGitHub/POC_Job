@@ -17,8 +17,12 @@ import TradeNetworking
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct LabBodyReadsTests {
-    /// A rig that has started and the Lab screen over its environment.
-    private typealias Lab = (rig: ScreenRig, screen: LabScreen)
+    /// A rig that has started, the Lab screen over its environment and the server behind it.
+    private struct Lab {
+        let rig: ScreenRig
+        let screen: LabScreen
+        let rest: FakeRest
+    }
 
     /// One thing that happens while the Lab is open: what it is called, and what it does to the rig. It says whether
     /// it did what its name says, so that a change that did nothing cannot pass for one that told nobody.
@@ -27,13 +31,15 @@ struct LabBodyReadsTests {
     /// A rig over a server that answers everything the moves below ask for, and the Lab screen over it.
     private func started() async -> Lab {
         // Every read of the account gives the same answer: the store reads it when it starts and again when its
-        // connection comes up, and the account check reads it once more.
+        // connection comes up, and the account check reads it once more. The first two reads of the settings find
+        // `busyLab` and the third finds what a server that started over holds.
         let rest = FakeRest(
             accountsFallback: labAccount(), serverTime: ScriptedCall([.value(1)]),
-            labRead: ScriptedCall([.value(busyLab)]), drops: ScriptedCall([.failure(URLError(.timedOut))])
+            labRead: ScriptedCall([.value(busyLab), .value(busyLab), .value(LabSettings())]),
+            drops: ScriptedCall([.failure(URLError(.timedOut))])
         )
         let rig = await ScreenRig.started(rest: rest)
-        return (rig, LabScreen(environment: rig.env))
+        return Lab(rig: rig, screen: LabScreen(environment: rig.env), rest: rest)
     }
 
     // MARK: The moves
@@ -68,6 +74,32 @@ struct LabBodyReadsTests {
         ("the settings loaded", { lab in
             await lab.screen.model.load()
             return lab.screen.model.settingsLoaded && lab.screen.model.settings == busyLab
+        })
+    }
+
+    /// The loop reads the settings for the first time, and the server answers.
+    private var theSettingsRefreshed: Move {
+        ("the settings refreshed", { lab in
+            await lab.screen.model.refreshSettings()
+            return lab.screen.model.settingsLoaded && lab.screen.model.settings == busyLab
+        })
+    }
+
+    /// The loop reads the settings again, once the screen shows `busyLab`, and the server holds `busyLab` still.
+    private var aRefreshThatFoundNothingNew: Move {
+        ("a refresh that found nothing new", { lab in
+            let model = lab.screen.model
+            await model.refreshSettings()
+            return lab.rest.labRead.count == 2 && model.settings == busyLab && model.settingsRevision == 1
+        })
+    }
+
+    /// The loop reads the settings again, and the server holds the defaults, as one that started over does.
+    private var aRefreshAfterTheServerStartedOver: Move {
+        ("a refresh after the server started over", { lab in
+            let model = lab.screen.model
+            await model.refreshSettings()
+            return lab.rest.labRead.count == 3 && model.settings == LabSettings() && model.settingsRevision == 2
         })
     }
 
@@ -116,11 +148,11 @@ struct LabBodyReadsTests {
         })
     }
 
-    /// Every move there is.
+    /// Every move there is that can be made on a rig that has only started.
     private var everyMove: [Move] {
         [
-            aFrameCarryingPrices, aDrawOfTheChart, theConnectionsDropping, theSettingsLoaded, aRequestThatFailed,
-            theRestApiProbed, theAccountChecked, aSampleOfTheFrames, anOrderSubmitted,
+            aFrameCarryingPrices, aDrawOfTheChart, theConnectionsDropping, theSettingsLoaded, theSettingsRefreshed,
+            aRequestThatFailed, theRestApiProbed, theAccountChecked, aSampleOfTheFrames, anOrderSubmitted,
         ]
     }
 
@@ -129,15 +161,20 @@ struct LabBodyReadsTests {
         everyMove.filter { !names.contains($0.name) }
     }
 
-    /// For each of `moves`: makes a new rig, evaluates the body of the view `make` builds over it, makes the move
-    /// and checks that the body would (`expected`) or would not have been evaluated again.
+    /// For each of `moves`: makes a new rig, makes the moves of `earlier` on it, evaluates the body of the view `make`
+    /// builds over it, makes the move and checks that the body would (`expected`) or would not have been evaluated
+    /// again.
     private func check<Content: View>(
-        told expected: Bool, by moves: [Move], sourceLocation: SourceLocation = #_sourceLocation,
-        make: (Lab) -> Content
+        told expected: Bool, by moves: [Move], after earlier: [Move] = [],
+        sourceLocation: SourceLocation = #_sourceLocation, make: (Lab) -> Content
     ) async {
         #expect(!moves.isEmpty, sourceLocation: sourceLocation)
         for move in moves {
             let lab = await started()
+            for first in earlier {
+                let took = await first.apply(lab)
+                #expect(took, "\(first.name) happened first", sourceLocation: sourceLocation)
+            }
             let told = watchBody(of: make(lab))
             #expect(!told.isSet, "before \(move.name)", sourceLocation: sourceLocation)
 
@@ -151,15 +188,17 @@ struct LabBodyReadsTests {
     // MARK: The screen and its parts
 
     @Test func theLabScreensBodyIsNotEvaluatedAgainWhenAnythingChanges() async {
-        #expect(everyMove.count == 9)
+        #expect(everyMove.count == 10)
 
         await check(told: false, by: everyMove) { lab in lab.screen }
         // The control: what the screen leaves to a part of its own is told.
-        await check(told: true, by: [theSettingsLoaded]) { lab in LabControlsSection(model: lab.screen.model) }
+        await check(told: true, by: [theSettingsLoaded, theSettingsRefreshed]) { lab in
+            LabControlsSection(model: lab.screen.model)
+        }
     }
 
     @Test func theControlsAreEvaluatedAgainWhenTheSettingsOrTheErrorChangeAndNeverWithTheFrames() async {
-        let told = [theSettingsLoaded, aRequestThatFailed]
+        let told = [theSettingsLoaded, theSettingsRefreshed, aRequestThatFailed]
         await check(told: true, by: told) { lab in LabControlsSection(model: lab.screen.model) }
         let quiet = everyMove(except: Set(told.map(\.name)))
         #expect(quiet.count == 7)
@@ -167,8 +206,9 @@ struct LabBodyReadsTests {
     }
 
     @Test func theRateControlIsEvaluatedAgainWhenARequestForTheSettingsEndsAndNeverWithTheFrames() async {
-        await check(told: true, by: [theSettingsLoaded]) { lab in RateControl(current: 1, model: lab.screen.model) }
-        let quiet = everyMove(except: [theSettingsLoaded.name])
+        let told = [theSettingsLoaded, theSettingsRefreshed]
+        await check(told: true, by: told) { lab in RateControl(current: 1, model: lab.screen.model) }
+        let quiet = everyMove(except: Set(told.map(\.name)))
         #expect(quiet.count == 8)
         await check(told: false, by: quiet) { lab in RateControl(current: 1, model: lab.screen.model) }
     }
@@ -179,7 +219,7 @@ struct LabBodyReadsTests {
             LabConnectionsSection(environment: lab.rig.env, model: lab.screen.model)
         }
         let quiet = everyMove(except: Set(told.map(\.name)))
-        #expect(quiet.count == 7)
+        #expect(quiet.count == 8)
         await check(told: false, by: quiet) { lab in
             LabConnectionsSection(environment: lab.rig.env, model: lab.screen.model)
         }
@@ -188,7 +228,7 @@ struct LabBodyReadsTests {
     @Test func theAccountRowIsEvaluatedAgainByTheCheckAloneAndTheSectionWithTheButtonNeverIs() async {
         await check(told: true, by: [theAccountChecked]) { lab in AccountCheckRow(model: lab.screen.model) }
         let quiet = everyMove(except: [theAccountChecked.name])
-        #expect(quiet.count == 8)
+        #expect(quiet.count == 9)
         await check(told: false, by: quiet) { lab in AccountCheckRow(model: lab.screen.model) }
         await check(told: false, by: everyMove) { lab in LabAccountSection(model: lab.screen.model) }
     }
@@ -199,9 +239,40 @@ struct LabBodyReadsTests {
             LabFramesSection(model: lab.screen.model, environment: lab.rig.env, updatedAt: epoch)
         }
         let quiet = everyMove(except: [aSampleOfTheFrames.name])
-        #expect(quiet.count == 8)
+        #expect(quiet.count == 9)
         await check(told: false, by: quiet) { lab in
             LabFramesSection(model: lab.screen.model, environment: lab.rig.env, updatedAt: epoch)
+        }
+    }
+
+    // MARK: The settings, read every round
+
+    @Test func aRoundThatFindsTheSettingsThatAreOnShowIsToldToNoBodyOfTheLab() async {
+        let loaded = [theSettingsLoaded]
+        await check(told: false, by: [aRefreshThatFoundNothingNew], after: loaded) { lab in lab.screen }
+        await check(told: false, by: [aRefreshThatFoundNothingNew], after: loaded) { lab in
+            LabControlsSection(model: lab.screen.model)
+        }
+        await check(told: false, by: [aRefreshThatFoundNothingNew], after: loaded) { lab in
+            RateControl(current: 1, model: lab.screen.model)
+        }
+        await check(told: false, by: [aRefreshThatFoundNothingNew], after: loaded) { lab in
+            LabConnectionsSection(environment: lab.rig.env, model: lab.screen.model)
+        }
+    }
+
+    @Test func aRoundThatFindsOtherSettingsIsToldToTheControlsAndTheSliderAndNotToTheScreen() async {
+        // The control for the test above: the same round, on the same rig, with a server that holds other settings.
+        let unchanged = [theSettingsLoaded, aRefreshThatFoundNothingNew]
+        await check(told: true, by: [aRefreshAfterTheServerStartedOver], after: unchanged) { lab in
+            LabControlsSection(model: lab.screen.model)
+        }
+        await check(told: true, by: [aRefreshAfterTheServerStartedOver], after: unchanged) { lab in
+            RateControl(current: 1, model: lab.screen.model)
+        }
+        await check(told: false, by: [aRefreshAfterTheServerStartedOver], after: unchanged) { lab in lab.screen }
+        await check(told: false, by: [aRefreshAfterTheServerStartedOver], after: unchanged) { lab in
+            LabConnectionsSection(environment: lab.rig.env, model: lab.screen.model)
         }
     }
 
@@ -212,7 +283,7 @@ struct LabBodyReadsTests {
             LabMeasurementsSection(environment: lab.rig.env, model: lab.screen.model)
         }
 
-        #expect(everyMove.count == 9)
+        #expect(everyMove.count == 10)
         for move in everyMove {
             let lab = await started()
             let section = LabMeasurementsSection(environment: lab.rig.env, model: lab.screen.model)

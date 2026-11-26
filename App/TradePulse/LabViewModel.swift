@@ -5,26 +5,16 @@ import Observation
 import TradeCore
 import TradeNetworking
 
-/// What the last probe of the REST API found. REST has no connection that is up or down, so the Lab shows what a probe
-/// of the server's clock found.
-enum RestStatus: Equatable {
-    /// No probe has been answered yet.
-    case unknown
-    /// The server answered the probe, `rttNs` nanoseconds after it was sent.
-    case reachable(rttNs: Int64)
-    /// The probe failed.
-    case unreachable
-}
-
 /// What the Lab screen shows and what its controls do.
 ///
 /// The settings it shows are always the ones the server answered with: the server holds a value in its range, so the
-/// answer to a change, and not the change that was asked for, is what is in force. Requests can overlap, and an answer
-/// that arrives after a newer request of the same kind was made is dropped, whether it is good or bad. A request that
-/// ended because it was cancelled is never an error to show.
+/// answer to a change, and not the change that was asked for, is what is in force. The loop reads them every round, so
+/// a server that started over or a change from outside shows too. `SettingsOrder` says whose answer counts when
+/// requests overlap. A request that ended because it was cancelled is never an error to show.
 ///
 /// A control that is ahead of the server while a request is on its way, such as a slider under a finger, looks at the
-/// settings again when `settingsRevision` changes: whatever the request brought, the settings are what it shows.
+/// settings again when `settingsRevision` changes. A round that finds the server as the screen shows it changes
+/// nothing, so no view is evaluated again for it.
 ///
 /// The model reads nothing that moves with the display frames when it is made or when a view reads it. The pump's
 /// counters are read only in `sampleFrames()`, which the screen calls twice a second, and the texts that come out of
@@ -40,9 +30,9 @@ final class LabViewModel {
     private(set) var settings = LabSettings()
     /// Whether the server has told the settings, by the answer to a read or to a change. The controls wait for it.
     private(set) var settingsLoaded = false
-    /// How many requests for the settings have ended in a way that counts: with an answer or with a failure. A request
-    /// that was cancelled, or that a newer request overtook, is not counted. It changes at the pace of the user's taps
-    /// and not of the prices or the frames.
+    /// How many times the server has brought something the controls must look at again: a request of the user's for the
+    /// settings that ended with an answer or a failure, and a read of the loop that found other settings than the ones
+    /// on show. A request that was cancelled or set aside, and a read that found nothing new, is not counted.
     private(set) var settingsRevision = 0
     /// What the comparison of the app's account with the server's found last; in flight until it has found anything.
     private(set) var reconciliation: Reconciliation = .inFlight
@@ -73,9 +63,8 @@ final class LabViewModel {
     @ObservationIgnored private let monotonicNs: @Sendable () -> UInt64
     /// Turns the pump's counter into a rate.
     @ObservationIgnored private var meter = FrameRateMeter()
-    /// How many requests for the settings (reads and changes together) have started; the newest one is the only one
-    /// whose answer counts.
-    @ObservationIgnored private var settingsGeneration = 0
+    /// Whose answer counts when requests for the settings overlap.
+    @ObservationIgnored private var order = SettingsOrder()
     /// How many probes have started.
     @ObservationIgnored private var probeGeneration = 0
     /// How many account checks have started.
@@ -99,22 +88,47 @@ final class LabViewModel {
 
     // MARK: Requests
 
-    /// Reads the settings the server holds. A failure keeps what the model had and says the server could not be
-    /// reached; a later read that works enables the controls.
+    /// Reads the settings the server holds, because the user asked to. A failure keeps what the model had and says the
+    /// server could not be reached; an answer enables the controls.
     func load() async {
-        await requestSettings(failure: LabMessages.couldNotReachTheServer) { try await rest.lab() }
+        let read = order.startRead()
+        await settle(LabMessages.couldNotReachTheServer, stands: order.counts(read)) { try await rest.lab() }
+    }
+
+    /// Reads the settings the server holds, as the loop does every round, and says nothing unless there is something
+    /// new: other settings than the ones on show, or the first ones. An answer takes the line "could not reach the
+    /// server" away, never the line of a change, a drop or a reset that did not work. A failure is said only while the
+    /// controls wait for the first answer, where it makes them say the settings are unavailable; the REST row already
+    /// says when the server is down.
+    func refreshSettings() async {
+        let read = order.startRead()
+        do {
+            let answer = try await rest.lab()
+            guard order.counts(read) else { return }
+            if lastError == LabMessages.couldNotReachTheServer { lastError = nil }
+            guard answer != settings || !settingsLoaded else { return }
+            settings = answer
+            settingsLoaded = true
+            settingsRevision &+= 1
+        } catch {
+            guard order.counts(read), !endsACancelledRequest(error) else { return }
+            if !settingsLoaded, lastError == nil { lastError = LabMessages.couldNotReachTheServer }
+        }
     }
 
     /// Changes the settings with `patch`. What the screen shows afterwards is the whole answer, the settings now in
     /// force: the server may have held a value in its range, or another client may have changed a setting that the
     /// patch left alone. A failure keeps the settings and says the change did not work.
     func apply(_ patch: LabPatch) async {
-        await requestSettings(failure: LabMessages.couldNotChangeTheSetting) { try await rest.setLab(patch) }
+        let change = order.startChange()
+        defer { order.endChange() }
+        await settle(LabMessages.couldNotChangeTheSetting, stands: order.counts(change)) {
+            try await rest.setLab(patch)
+        }
     }
 
-    /// Asks the server for `patch` as `apply` does, and returns at once: a tap or a drag does not wait for the server,
-    /// and what the controls show is the settings the answer brings. The task is the wait for the answer, which a
-    /// caller with nothing to do after it lets go.
+    /// Asks the server for `patch` as `apply` does, and returns at once, so a tap or a drag does not wait for the
+    /// server. The task is the wait for the answer, which a caller with nothing to do after it lets go.
     @discardableResult
     func ask(_ patch: LabPatch) -> Task<Void, Never> {
         Task { await apply(patch) }
@@ -123,73 +137,61 @@ final class LabViewModel {
     /// Asks the server to close the live connections it holds to the app. The app's own clients notice that on their
     /// own and reconnect, which is what the button is there to show, so nothing else happens here.
     func dropConnections() async {
-        do {
-            try await rest.dropConnections()
-            lastError = nil
-        } catch {
-            if !Self.isCancellation(error) { lastError = LabMessages.couldNotDropTheConnections }
-        }
+        await attempt(failure: LabMessages.couldNotDropTheConnections) { try await rest.dropConnections() }
     }
 
     /// Asks the server to start a new epoch: the account goes back to its starting cash and the orders are forgotten.
     /// The app's own clients notice the new epoch on their own, so nothing else happens here.
     func resetAccount() async {
+        await attempt(failure: LabMessages.couldNotResetTheAccount) { _ = try await rest.resetServer() }
+    }
+
+    /// Makes a request that is not about the settings: the line under the controls goes when it works, and is `failure`
+    /// when it does not, unless the request was cancelled.
+    private func attempt(failure: String, _ request: () async throws -> Void) async {
         do {
-            _ = try await rest.resetServer()
+            try await request()
             lastError = nil
         } catch {
-            if !Self.isCancellation(error) { lastError = LabMessages.couldNotResetTheAccount }
+            if !endsACancelledRequest(error) { lastError = failure }
         }
     }
 
-    /// Sends one request for the settings and takes its answer, unless a newer request has started by then: reads and
-    /// changes share one order, the order they were started in, so the answer of the newest one stands whichever
-    /// comes back first. A failure that is not a cancellation is `failure`, under the same rule. A request that ends
-    /// in an answer or in such a failure is counted in `settingsRevision`.
-    private func requestSettings(failure: String, _ ask: () async throws -> LabSettings) async {
-        settingsGeneration &+= 1
-        let started = settingsGeneration
+    /// Sends one request of the user's for the settings and takes its answer, or its failure (`line` is what is said,
+    /// unless it was cancelled), if it `stands` as `SettingsOrder` says. What is taken counts in `settingsRevision`.
+    private func settle(_ line: String, stands: @autoclosure () -> Bool, _ ask: () async throws -> LabSettings) async {
         do {
             let answer = try await ask()
-            guard started == settingsGeneration else { return }
+            guard stands() else { return }
             settings = answer
             settingsLoaded = true
             lastError = nil
         } catch {
-            guard started == settingsGeneration, !Self.isCancellation(error) else { return }
-            lastError = failure
+            guard stands(), !endsACancelledRequest(error) else { return }
+            lastError = line
         }
         settingsRevision &+= 1
     }
 
-    /// Whether `error` is the end of a request whose task was cancelled. A task that is cancelled while it waits for
-    /// the server ends with a `CancellationError` or, when the system cancels the transfer, with a URL error; neither
-    /// is a failure to show.
-    private static func isCancellation(_ error: any Error) -> Bool {
-        error is CancellationError || Task.isCancelled
-    }
-
     // MARK: Looking at the server
 
-    /// Looks at the server until the task is cancelled: a probe of the REST API, the account check, and then a wait of
-    /// five seconds, over and over. The first round is made before the first wait, so the screen has numbers the
-    /// moment it opens. A wait that ends in an error ends the loop.
+    /// Looks at the server until the task is cancelled: a probe of the REST API, a read of the settings, the account
+    /// check, and then a wait of five seconds, over and over. The first round is made before the first wait, so the
+    /// screen has numbers and live controls the moment it opens. A wait that ends in an error ends the loop.
     func monitor() async {
         while !Task.isCancelled {
             await probeRest()
             guard !Task.isCancelled else { return }
+            await refreshSettings()
+            guard !Task.isCancelled else { return }
             await refreshReconciliation()
-            do {
-                try await sleep(Self.roundInterval)
-            } catch {
-                return
-            }
+            do { try await sleep(Self.roundInterval) } catch { return }
         }
     }
 
-    /// Asks the server for its clock and times the answer on the monotonic clock. An answer is `reachable` with the
-    /// round trip, which is never negative and is clamped into an `Int64`; a failure is `unreachable`. A probe that
-    /// was cancelled, or that a newer probe has overtaken, changes nothing.
+    /// Asks the server for its clock and times the answer on the monotonic clock: `reachable` with the round trip,
+    /// which is never negative and is clamped into an `Int64`, or `unreachable`. A probe that was cancelled, or that a
+    /// newer probe has overtaken, changes nothing.
     func probeRest() async {
         probeGeneration &+= 1
         let started = probeGeneration
@@ -201,15 +203,14 @@ final class LabViewModel {
             let elapsed = endedAt >= startedAt ? endedAt - startedAt : 0
             restStatus = .reachable(rttNs: Int64(clamping: elapsed))
         } catch {
-            guard started == probeGeneration, !Self.isCancellation(error) else { return }
+            guard started == probeGeneration, !endsACancelledRequest(error) else { return }
             restStatus = .unreachable
         }
     }
 
     /// Compares the app's account with the server's and shows what the comparison found. A store that has not read the
-    /// server yet is not compared: it would report drift against the server's starting cash, a defect that is only
-    /// "not loaded yet", so the answer stays in flight and the server is not asked. A check that was cancelled, or
-    /// that a newer check has overtaken, changes nothing.
+    /// server yet is not compared, as it would report drift against the server's starting cash: the answer stays in
+    /// flight and the server is not asked. A check that was cancelled or overtaken changes nothing.
     func refreshReconciliation() async {
         checkGeneration &+= 1
         let started = checkGeneration
@@ -225,8 +226,8 @@ final class LabViewModel {
     // MARK: Frames
 
     /// Takes a sample of the frames: reads the pump's counters and the cost of drawing, and turns them into the
-    /// model's texts. The screen calls it twice a second, and this is the only place the model reads the counters,
-    /// which change with every frame: the texts change at the pace of the samples.
+    /// model's texts. The screen calls it twice a second, and it is the only place the model reads the counters, which
+    /// change with every frame.
     func sampleFrames() {
         let frames = pump.frames
         let hitches = pump.hitches

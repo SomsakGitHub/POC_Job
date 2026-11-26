@@ -5,9 +5,9 @@ import TradeCore
 import TradeNetworking
 @testable import TradePulse
 
-/// What the Lab looks at while it is open: the loop that probes the REST API and checks the account every five
-/// seconds, the round trip the probe measures, and the comparison of the app's account with the server's. Nothing here
-/// waits for time to pass: the loop's wait is a double that records what it was asked for.
+/// What the Lab looks at while it is open: the loop that probes the REST API, reads the settings and checks the account
+/// every five seconds, the round trip the probe measures, and the comparison of the app's account with the server's.
+/// Nothing here waits for time to pass: the loop's wait is a double that records what it was asked for.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct LabMonitorTests {
@@ -18,6 +18,7 @@ struct LabMonitorTests {
         let rest = FakeRest(
             accounts: [labAccount(), labAccount(), labAccount(), labAccount()],
             serverTime: ScriptedCall([.value(1), .value(2), .value(3)], log: (log, "rest.serverTime")),
+            labRead: ScriptedCall([.value(busyLab), .value(busyLab), .value(busyLab)], log: (log, "rest.lab")),
             accountLog: log
         )
         let sleeper = CountingSleeper(endsOnCall: 3, onCall: { _ in log.add("sleep") })
@@ -29,16 +30,20 @@ struct LabMonitorTests {
         await rig.model.monitor()
 
         let rounds = Array(log.entries.dropFirst(before))
-        let round = ["rest.serverTime", "rest.account", "sleep"]
+        let round = ["rest.serverTime", "rest.lab", "rest.account", "sleep"]
         #expect(rounds == round + round + round)
         #expect(sleeper.durations == [.seconds(5), .seconds(5), .seconds(5)])
         #expect(rest.serverTime.count == 3)
+        #expect(rest.labRead.count == 3)
+        #expect(rest.labWrite.count == 0, "the loop only looks")
         #expect(rest.accountCalls == 1 + 3)
+        #expect(rig.model.settings == busyLab)
     }
 
     @Test func cancellingTheLoopDuringItsWaitEndsItWithoutAnotherRound() async {
         let rest = FakeRest(
-            accounts: [labAccount(), labAccount(), labAccount()], serverTime: ScriptedCall([.value(1), .value(2)])
+            accounts: [labAccount(), labAccount(), labAccount()], serverTime: ScriptedCall([.value(1), .value(2)]),
+            labRead: ScriptedCall([.value(busyLab), .value(busyLab)])
         )
         let sleeper = FakeSleeper(.holdUntilReleased)
         let rig = LabRig(rest: rest, sleep: { try await sleeper.sleep($0) })
@@ -46,6 +51,7 @@ struct LabMonitorTests {
         let loop = Task { @MainActor in await rig.model.monitor() }
         await waitFor("the first wait") { sleeper.requested == 1 }
         let probesInTheFirstRound = rest.serverTime.count
+        let readsInTheFirstRound = rest.labRead.count
 
         // The control: a wait that ends is followed by another round, and the loop waits again.
         sleeper.release()
@@ -56,8 +62,10 @@ struct LabMonitorTests {
         await loop.value
 
         #expect(probesInTheFirstRound == 1)
+        #expect(readsInTheFirstRound == 1)
         #expect(probesInTheSecondRound == 2)
         #expect(rest.serverTime.count == 2)
+        #expect(rest.labRead.count == 2)
         #expect(rest.accountCalls == 1 + 2)
         #expect(sleeper.requested == 2)
     }
@@ -75,10 +83,88 @@ struct LabMonitorTests {
         await loop.value
 
         #expect(released)
+        #expect(rest.labRead.count == 0, "the loop did not read the settings")
         #expect(rest.accountCalls == 1, "only the store's own read: the loop did not check the account")
         #expect(sleeper.durations.isEmpty)
         #expect(rig.model.restStatus == .unknown)
         #expect(rig.model.reconciliation == .inFlight)
+    }
+
+    @Test func aLoopCancelledDuringItsReadOfTheSettingsMakesNoFurtherCallAndSaysNothing() async {
+        let rest = FakeRest(
+            accounts: [labAccount(), labAccount()], serverTime: ScriptedCall([.value(1)]),
+            labRead: ScriptedCall([.hold])
+        )
+        let sleeper = CountingSleeper(endsOnCall: 3)
+        let rig = LabRig(rest: rest, sleep: { try await sleeper.sleep($0) })
+        await rig.startTrading()
+        let loop = Task { @MainActor in await rig.model.monitor() }
+        await waitFor("the read of the settings is in flight") { rest.labRead.heldCount == 1 }
+
+        loop.cancel()
+        let released = rest.labRead.release(call: 0, .failure(URLError(.cancelled)))
+        await loop.value
+
+        #expect(released)
+        #expect(rest.serverTime.count == 1, "the probe came first")
+        #expect(rest.accountCalls == 1, "only the store's own read: the loop did not check the account")
+        #expect(sleeper.durations.isEmpty)
+        #expect(rig.model.lastError == nil, "a read that was cancelled says nothing")
+        #expect(!rig.model.settingsLoaded)
+        #expect(rig.model.settingsRevision == 0)
+    }
+
+    @Test func aLoopThatReadsTheSettingsEveryRoundShowsTheDefaultsOfAServerThatStartedOver() async {
+        // The second answer is what a server that has just started holds: 1x, no stress, no delay, no jitter.
+        let rest = FakeRest(
+            accounts: [labAccount(), labAccount(), labAccount()], serverTime: ScriptedCall([.value(1), .value(2)]),
+            labRead: ScriptedCall([.value(busyLab), .value(LabSettings())])
+        )
+        let sleeper = FakeSleeper(.holdUntilReleased)
+        let rig = LabRig(rest: rest, sleep: { try await sleeper.sleep($0) })
+        await rig.startTrading()
+        let loop = Task { @MainActor in await rig.model.monitor() }
+        await waitFor("the first wait") { sleeper.requested == 1 }
+        let afterTheFirstRound = (rig.model.settings, rig.model.settingsLoaded, rig.model.settingsRevision)
+
+        sleeper.release()
+        await waitFor("the second wait") { sleeper.requested == 2 }
+        loop.cancel()
+        await loop.value
+
+        #expect(afterTheFirstRound.0 == busyLab, "the first round reads before the first wait")
+        #expect(afterTheFirstRound.1)
+        #expect(afterTheFirstRound.2 == 1)
+        #expect(rig.model.settings == LabSettings())
+        #expect(rig.model.settingsRevision == 2)
+        #expect(rest.labRead.count == 2)
+    }
+
+    @Test func theControlsComeAliveInTheFirstRoundTheServerIsThereFor() async {
+        let rest = FakeRest(
+            accounts: [labAccount(), labAccount(), labAccount()],
+            serverTime: ScriptedCall([.failure(URLError(.cannotConnectToHost)), .value(2)]),
+            labRead: ScriptedCall([.failure(URLError(.cannotConnectToHost)), .value(busyLab)])
+        )
+        let sleeper = FakeSleeper(.holdUntilReleased)
+        let rig = LabRig(rest: rest, sleep: { try await sleeper.sleep($0) })
+        await rig.startTrading()
+        let loop = Task { @MainActor in await rig.model.monitor() }
+        await waitFor("the first wait") { sleeper.requested == 1 }
+        let whileTheServerIsAway = (rig.model.settingsLoaded, rig.model.lastError, rig.model.restStatus)
+
+        sleeper.release()
+        await waitFor("the second wait") { sleeper.requested == 2 }
+        loop.cancel()
+        await loop.value
+
+        #expect(whileTheServerIsAway.0 == false)
+        #expect(whileTheServerIsAway.1 == LabMessages.couldNotReachTheServer)
+        #expect(whileTheServerIsAway.2 == .unreachable)
+        #expect(rig.model.settingsLoaded)
+        #expect(rig.model.settings == busyLab)
+        #expect(rig.model.lastError == nil)
+        #expect(rig.model.restStatus == .reachable(rttNs: 0))
     }
 
     // MARK: Probing the REST API

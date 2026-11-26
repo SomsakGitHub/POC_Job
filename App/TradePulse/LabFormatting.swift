@@ -99,6 +99,17 @@ enum ConnectionText {
     }
 }
 
+/// What the last probe of the REST API found. REST has no connection that is up or down, so the Lab shows what a probe
+/// of the server's clock found.
+enum RestStatus: Equatable {
+    /// No probe has been answered yet.
+    case unknown
+    /// The server answered the probe, `rttNs` nanoseconds after it was sent.
+    case reachable(rttNs: Int64)
+    /// The probe failed.
+    case unreachable
+}
+
 /// The words for what the last probe of the REST API found.
 enum RestStatusText {
     /// `REST: checking…` before the first answer, `REST: reachable, 3.21 ms` with the round trip of the probe, or

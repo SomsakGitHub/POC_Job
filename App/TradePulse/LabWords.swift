@@ -24,6 +24,10 @@ enum LabLabels {
     static let dropUpdatesHint =
         "The server skips every second market update, so the app sees gaps in the sequence numbers and fetches the "
         + "state again."
+    /// What the dialog of Reset account says: that the reset happens on the server, for the simulated account, and
+    /// cannot be undone. It is two short sentences, because the dialog is a narrow popover at the largest text size.
+    static let resetAccountMessage =
+        "The server resets the simulated account to its starting cash and forgets every order. This cannot be undone."
     /// What the count of gaps is, for VoiceOver.
     static let gapsRowHint =
         "Counts the gaps in the sequence numbers of the market feed. The switch that drops updates makes them."

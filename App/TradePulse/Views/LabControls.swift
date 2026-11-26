@@ -118,7 +118,7 @@ struct ResetAccountButton: View {
                 Task { await model.resetAccount() }
             }
         } message: {
-            Text("The account goes back to its starting cash and every order is forgotten.")
+            Text(LabLabels.resetAccountMessage)
         }
     }
 }
@@ -126,12 +126,11 @@ struct ResetAccountButton: View {
 /// The rate multiplier: its figure above a slider that goes from 0.5 to 5 in steps of 0.5.
 ///
 /// The server hears of a drag once, when the finger lifts, and not for every step the slider passes. The slider shows
-/// where the finger is while it is down, and the rate the model holds otherwise: when a request for the settings ends,
-/// with an answer or with a failure, it goes to that rate, so a change the server did not take is not left on show. Its
+/// where the finger is while it is down, and the rate the model holds otherwise: when the server brings something the
+/// controls look at again (a request that ends, or a round that finds other settings), it goes to that rate, so a
+/// change the server did not take is not left on show. An answer that comes under the finger waits for the lift. Its
 /// state is its own, so a drag evaluates this view and nothing around it.
 struct RateControl: View {
-    /// The rate the server held when this view was made, which is where the slider starts.
-    let current: Double
     /// The model the change is asked of.
     let model: LabViewModel
     /// What the slider shows and when it asks.
@@ -139,7 +138,6 @@ struct RateControl: View {
 
     /// A slider that starts at `current`, the rate the server holds.
     init(current: Double, model: LabViewModel) {
-        self.current = current
         self.model = model
         _state = State(initialValue: RateSliderState(rate: current))
     }

@@ -24,7 +24,15 @@ enum LayoutRig {
         return host.sizeThatFits(in: CGSize(width: width, height: offeredHeight)).height
     }
 
-    /// A drawing of a view, from which the colour of a point can be read.
+    /// The width `view` takes when it is offered all the width and all the height it wants, at the text size
+    /// `typeSize`: for a text that is fixed to one line, the width of that line.
+    static func width(of view: some View, at typeSize: DynamicTypeSize) -> CGFloat {
+        let host = UIHostingController(rootView: view.environment(\.dynamicTypeSize, typeSize))
+        let unlimited = CGFloat.greatestFiniteMagnitude
+        return host.sizeThatFits(in: CGSize(width: unlimited, height: unlimited)).width
+    }
+
+    /// A drawing of a view, from which the colour of a point can be read and the ink of text can be found.
     struct Picture {
         /// What was drawn.
         let image: UIImage
@@ -51,6 +59,59 @@ enum LayoutRig {
                 return true
             }
             return drawn ? pixel.map(Int.init) : []
+        }
+
+        /// The right edge, in points from the left edge, of the rightmost pixel that is dark, as the ink of text is on
+        /// white. It is nil when no pixel is dark.
+        func rightEdgeOfInk() -> CGFloat? {
+            guard let pixels = brightness() else { return nil }
+            for x in stride(from: pixels.width - 1, through: 0, by: -1) {
+                for y in 0..<pixels.height where pixels.values[y * pixels.width + x] < Self.darkBelow {
+                    return CGFloat(x + 1) / image.scale
+                }
+            }
+            return nil
+        }
+
+        /// The heights, in points, of the lines of ink between `left` and `right`, in points from the left edge: the
+        /// runs of rows of pixels that each have a dark pixel there, from the top down.
+        func linesOfInk(from left: CGFloat, to right: CGFloat) -> [CGFloat] {
+            guard let pixels = brightness() else { return [] }
+            let first = Int((left * image.scale).rounded())
+            let columns = max(0, first)..<min(pixels.width, Int((right * image.scale).rounded()))
+            var lines: [CGFloat] = []
+            var run = 0
+            for y in 0..<pixels.height {
+                if columns.contains(where: { pixels.values[y * pixels.width + $0] < Self.darkBelow }) {
+                    run += 1
+                } else if run > 0 {
+                    lines.append(CGFloat(run) / image.scale)
+                    run = 0
+                }
+            }
+            if run > 0 { lines.append(CGFloat(run) / image.scale) }
+            return lines
+        }
+
+        /// The brightness under which a pixel is ink, from 0 for black to 255 for white.
+        private static let darkBelow: UInt8 = 160
+
+        /// How bright each pixel is, row by row from the top, and the size of the picture in pixels. It is nil if the
+        /// drawing has no pixels.
+        private func brightness() -> (width: Int, height: Int, values: [UInt8])? {
+            guard let cgImage = image.cgImage else { return nil }
+            let width = cgImage.width
+            let height = cgImage.height
+            var values = [UInt8](repeating: 255, count: width * height)
+            let drawn = values.withUnsafeMutableBytes { bytes -> Bool in
+                guard let context = CGContext(
+                    data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                    space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+                ) else { return false }
+                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+                return true
+            }
+            return drawn ? (width, height, values) : nil
         }
     }
 

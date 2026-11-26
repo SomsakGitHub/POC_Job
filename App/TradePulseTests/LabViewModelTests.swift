@@ -5,8 +5,9 @@ import TradeNetworking
 @testable import TradePulse
 
 /// What the Lab does with the server's settings and with the three requests that change the server: the settings it
-/// shows are the ones the server answers with, an answer that arrives after a newer request was made is dropped, and
-/// a request that failed or was cancelled is told in plain words or not at all.
+/// shows are the ones the server answers with, an answer that arrives after a newer request of its kind was made is
+/// dropped, a read that overlaps a change is dropped whichever of the two is answered first, and a request that failed
+/// or was cancelled is told in plain words or not at all.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct LabViewModelTests {
@@ -272,29 +273,39 @@ struct LabViewModelTests {
         #expect(rig.model.settings == LabSettings())
     }
 
-    @Test func aLoadAndAnApplyAreOrderedByWhenTheyStartedWhicheverIsAnsweredFirst() async {
-        // The load starts first and is answered last: the apply that started after it is the newer.
+    @Test func aLoadThatOverlapsAnApplyIsDroppedAndTheApplyStandsWhicheverStartedFirst() async {
+        // The load starts first and is answered last: an apply started while it was on its way, so the load is dropped.
         let restA = FakeRest(labRead: ScriptedCall([.hold]), labWrite: ScriptedCall([.value(other)]))
         let rigA = LabRig(rest: restA)
         let load = Task { @MainActor in await rigA.model.load() }
         await waitFor("the load is in flight") { restA.labRead.heldCount == 1 }
         await rigA.model.apply(LabPatch(stress: true))
+        let afterTheApply = rigA.model.settings
         let releasedLoad = restA.labRead.release(call: 0, .success(busyLab))
         await load.value
 
-        // The apply starts first and is answered last: the load that started after it is the newer.
+        // The apply starts first and is answered last: the load started while it was on its way, so it is dropped
+        // although it was answered first and started later.
         let restB = FakeRest(labRead: ScriptedCall([.value(busyLab)]), labWrite: ScriptedCall([.hold]))
         let rigB = LabRig(rest: restB)
         let apply = Task { @MainActor in await rigB.model.apply(LabPatch(stress: true)) }
         await waitFor("the apply is in flight") { restB.labWrite.heldCount == 1 }
         await rigB.model.load()
+        let afterTheLoad = (rigB.model.settings, rigB.model.settingsLoaded, rigB.model.settingsRevision)
         let releasedApply = restB.labWrite.release(call: 0, .success(other))
         await apply.value
 
         #expect(releasedLoad)
+        #expect(afterTheApply == other)
         #expect(rigA.model.settings == other)
+        #expect(rigA.model.settingsRevision == 1, "the apply is counted and the load that was dropped is not")
+        #expect(restB.labRead.count == 1, "the control: the load did ask")
+        #expect(afterTheLoad.0 == LabSettings())
+        #expect(!afterTheLoad.1)
+        #expect(afterTheLoad.2 == 0)
         #expect(releasedApply)
-        #expect(rigB.model.settings == busyLab)
+        #expect(rigB.model.settings == other)
+        #expect(rigB.model.settingsRevision == 1)
     }
 
     // MARK: Asking without waiting

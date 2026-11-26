@@ -43,8 +43,8 @@ struct LabScreen: View {
         )
     }
 
-    /// The sections under the title. The settings are read once when the screen opens, and the loop that looks at the
-    /// server runs for as long as the screen is on show.
+    /// The sections under the title. The loop that looks at the server, the settings included, runs for as long as the
+    /// screen is on show, and it makes its first round as the screen opens.
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -58,7 +58,6 @@ struct LabScreen: View {
                 .padding(.vertical, 12)
             }
             .navigationTitle("Lab")
-            .task { await model.load() }
             .task { await model.monitor() }
         }
     }
@@ -66,8 +65,8 @@ struct LabScreen: View {
 
 /// The state of the market feed, of the order stream and of the REST API, each in words with a symbol.
 ///
-/// It reads the two connection states and the probe's finding in its own body: a connection that drops tells this view
-/// and not the screen around it.
+/// It reads the two connection states and what the probe found in its own body: a connection that drops tells this
+/// view and not the screen around it.
 struct LabConnectionsSection: View {
     /// The app's environment, which holds the two connection states.
     let environment: AppEnvironment
