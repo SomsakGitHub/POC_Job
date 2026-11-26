@@ -10,7 +10,13 @@ import TradeNetworking
 /// spend its time on frames nobody sees. The pump turns the updates of one display frame into one change of `tick`, and
 /// into none in a frame in which the market did not change, so a view that reads `tick` is evaluated once per frame
 /// that has something new to show. It also counts the frames and the ones that hitched, and tells the market state
-/// when the new prices of a frame are due on screen, for the render latency.
+/// when the new prices of a frame are on screen, for the render latency.
+///
+/// That moment is a stamp: the first display refresh at or after the moment the work was done, on the grid of refreshes
+/// that the display link describes (one at the due time of its newest frame, and one every frame length before and
+/// after it). It is an estimate made from the display link and not a measurement of the GPU or of the screen, and it is
+/// never earlier than the clock was when it was taken: a frame whose refresh has already gone by is on screen at the
+/// next one.
 ///
 /// Only `tick`, `frames` and `hitches` are observable. The two counters change with every frame, so a view that wants
 /// to redraw for new prices reads `tick` alone.
@@ -46,8 +52,14 @@ final class FramePump {
     @ObservationIgnored private var lastVersion: UInt64
     /// The timestamp of the previous frame; nil before the first frame and again after every start.
     @ObservationIgnored private var previousTimestamp: CFTimeInterval?
-    /// When the newest frame is due on screen, on the client's wall clock; nil before the first frame.
+    /// The stamp of the newest frame: the first display refresh at or after the moment its step ran, on the client's
+    /// wall clock; nil before the first frame. It is one point of the grid of refreshes, the others being
+    /// `lastPeriodNs` apart from it, before and after.
     @ObservationIgnored private var lastPresentNs: Int64?
+    /// How long a frame is meant to take as the newest step reported it, in nanoseconds: the distance between two
+    /// refreshes of the grid that `lastPresentNs` is one point of. It is 0 or less when the link did not say, and then
+    /// the grid is not known.
+    @ObservationIgnored private var lastPeriodNs: Int64 = 0
 
     /// Whether the display link is running.
     var isRunning: Bool { displayLink != nil }
@@ -96,21 +108,31 @@ final class FramePump {
     /// seconds of the display's clock.
     ///
     /// It counts the frame and the hitch (an interval of more than 1.5 times `duration` since the previous frame),
-    /// works out when the frame is due on the client's wall clock, and, if the market changed since the last frame,
-    /// moves `tick` and tells the market state that this frame renders what was applied. The latency that records is
-    /// the time from the server's stamp to the moment the display link says the frame is due on screen; it is not a
-    /// measurement of the GPU.
+    /// works out when the frame is on screen on the client's wall clock, and, if the market changed since the last
+    /// frame, moves `tick` and tells the market state that this frame renders what was applied.
+    ///
+    /// The frame is on screen at the first refresh at or after the clock of this call, on the grid that the link
+    /// describes. In the normal case that is the target the link reports. A link that fires after its own target has
+    /// a target that has already gone by, and the frame is then on screen at the first refresh after the target that
+    /// is not before the clock, found a `duration` at a time. A `duration` that is not positive leaves no grid to look
+    /// on, and the stamp is then the clock. The latency that records is the time from the server's stamp to that
+    /// refresh. It is an estimate made from the display link and not a measurement of the GPU, and it is never
+    /// earlier than the clock was when it was taken.
     func step(timestamp: CFTimeInterval, targetTimestamp: CFTimeInterval, duration: CFTimeInterval) {
+        let periodNs = Self.nanoseconds(duration)
         let interval = previousTimestamp.map { Self.nanoseconds(timestamp - $0) } ?? 0
-        detector.record(frameIntervalNs: interval, expectedNs: Self.nanoseconds(duration))
+        detector.record(frameIntervalNs: interval, expectedNs: periodNs)
         // A counter is written only when it moved, so that a view that reads one is not told of a write that changed
         // nothing.
         if detector.frames != frames { frames = detector.frames }
         if detector.hitches != hitches { hitches = detector.hitches }
         previousTimestamp = timestamp
 
-        let presentNs = Self.saturatingAdd(now(), Self.nanoseconds(targetTimestamp - mediaNow()))
+        let nowNs = now()
+        let targetNs = Self.saturatingAdd(nowNs, Self.nanoseconds(targetTimestamp - mediaNow()))
+        let presentNs = Self.firstRefresh(from: targetNs, every: periodNs, notBefore: nowNs)
         lastPresentNs = presentNs
+        lastPeriodNs = periodNs
         let version = marketState.version
         guard version != lastVersion else { return }
         lastVersion = version
@@ -120,20 +142,30 @@ final class FramePump {
         marketState.markRendered(atNs: presentNs)
     }
 
-    /// A view finished drawing, and it took `drawNs`. Frames applied since the last `step` are rendered by this draw,
-    /// so they are stamped with the same due time as that step, or with the clock when no frame has been stepped yet.
+    /// A view finished drawing, and it took `drawNs`. Frames applied since the last stamp are rendered by this draw.
+    ///
+    /// They are stamped with the first refresh at or after the clock of this call, on the grid of the newest step. That
+    /// is the stamp of the step when the draw ended before it, which is the normal case. A frame that is drawn after
+    /// it is shown at the next refresh and not at one that has gone by, so a draw that ended after it is stamped with
+    /// the first refresh after it that is not before the clock. With no step yet, or a step that did not say how long
+    /// a frame is meant to take, the grid is not known and the stamp is the clock. Like the stamp of a step it is an
+    /// estimate made from the display link and not a measurement of the GPU, and it is never earlier than the clock
+    /// was when it was taken.
     func notifyRendered(drawNs: Int64) {
-        marketState.markRendered(atNs: lastPresentNs ?? now())
+        let nowNs = now()
+        let stampNs = lastPresentNs.map { Self.firstRefresh(from: $0, every: lastPeriodNs, notBefore: nowNs) } ?? nowNs
+        marketState.markRendered(atNs: stampNs)
         drawHistogram.record(nanos: drawNs)
     }
 
     /// Starts the frame and draw statistics over: the frame and hitch counts go back to 0 and the draw times are
     /// forgotten.
     ///
-    /// The display link, the timestamp of the previous frame, the due time of the newest frame and the tick are left
-    /// as they are. The next frame is therefore measured from the frame before the reset and counts like any other,
-    /// where a pump that was started again would have no interval for its first one, and a draw that follows is still
-    /// stamped with the due time of the last frame.
+    /// The display link, the timestamp of the previous frame, the stamp and the length of the newest frame and the
+    /// tick are left as they are. The next frame is therefore measured from the frame before the reset and counts
+    /// like any other, where a pump that was started again would have no interval for its first one, and a draw that
+    /// follows is still stamped on the grid of the last frame: with its stamp when the draw ends before it, and with
+    /// the next refresh when it ends after it.
     ///
     /// A view that reads a count is told when it changes, and a reset of counts that are already 0 changes nothing.
     func resetStatistics() {
@@ -163,6 +195,21 @@ final class FramePump {
         let (sum, overflow) = lhs.addingReportingOverflow(rhs)
         guard overflow else { return sum }
         return rhs < 0 ? .min : .max
+    }
+
+    /// The first refresh at or after `notBefore` on a display that refreshes at `first` and every `period` after it.
+    ///
+    /// It is `first` when `first` is not before `notBefore`. Otherwise it is `first + k * period` for the smallest `k`
+    /// that reaches `notBefore`, which is at least 1: the next refresh that has not gone by. A `period` of 0 or less
+    /// says nothing about where the refreshes are, so the refresh is `notBefore` itself. The sum is worked out in
+    /// `Int128`, so no values overflow it, and a result that does not fit in an `Int64` is kept at its bound, so
+    /// that the answer is never below `first` or `notBefore`.
+    nonisolated static func firstRefresh(from first: Int64, every period: Int64, notBefore: Int64) -> Int64 {
+        guard first < notBefore else { return first }
+        guard period > 0 else { return notBefore }
+        let gap = Int128(notBefore) - Int128(first)
+        let refreshes = (gap + Int128(period) - 1) / Int128(period)
+        return Int64(clamping: Int128(first) + refreshes * Int128(period))
     }
 }
 
