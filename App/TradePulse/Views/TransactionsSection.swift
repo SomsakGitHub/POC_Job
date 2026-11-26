@@ -111,6 +111,7 @@ struct TransactionRowView: View {
         VStack(alignment: alignment, spacing: 2) {
             Text(model.cashChangeText)
                 .font(.subheadline.weight(.semibold).monospacedDigit())
+                .amountOnOneLine()
             Text("commission \(model.commissionText)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)

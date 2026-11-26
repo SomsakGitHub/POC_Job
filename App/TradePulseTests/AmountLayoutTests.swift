@@ -51,6 +51,37 @@ struct AmountLayoutTests {
         #expect(largeAtBigText > 1.9 * smallAtBigText, "two rows, where small amounts are one: \(largeAtBigText) pt")
     }
 
+    // MARK: Transactions and positions
+
+    /// A fill that changed the cash by `cashDelta` satang, as the transactions list draws it.
+    private func fill(cashDelta: Int64) -> TransactionRowView {
+        TransactionRowView(model: TransactionRowModel(row: ledgerRow(1, cashDelta: cashDelta), ticker: "PTT"))
+    }
+
+    /// A holding of PTT worth `value` satang, as the portfolio draws it.
+    private func holding(worth value: Int64) -> PositionRowView {
+        PositionRowView(row: PositionRow(id: 1, ticker: "PTT", quantity: 100, last: satang(5), marketValueSatang: value))
+    }
+
+    @Test func aCashChangeAndAPositionValueOfTenMillionBahtStayOnOneLineAtTheLargestTextSize() {
+        let column = LayoutRig.contentWidth
+        let plain = Text("-฿10,000,000.00").font(.subheadline.weight(.semibold).monospacedDigit())
+        let plainWide = LayoutRig.height(of: plain, at: .accessibility5, width: 700)
+        let plainNarrow = LayoutRig.height(of: plain, at: .accessibility5, width: column)
+
+        let smallFill = LayoutRig.height(of: fill(cashDelta: -500), at: .accessibility5, width: column)
+        let largeFill = LayoutRig.height(of: fill(cashDelta: -1_000_000_000), at: .accessibility5, width: column)
+        let smallHolding = LayoutRig.height(of: holding(worth: 500), at: .accessibility5, width: column)
+        let largeHolding = LayoutRig.height(of: holding(worth: 1_000_000_000), at: .accessibility5, width: column)
+
+        #expect(fill(cashDelta: -1_000_000_000).model.cashChangeText == "-฿10,000,000.00")
+        #expect(plainNarrow > plainWide, "the control: that amount in a plain text is broken across lines")
+        #expect(largeFill <= smallFill + 1, "fills of -฿5.00 and -฿10,000,000.00: \(smallFill) pt, \(largeFill) pt")
+        #expect(
+            largeHolding <= smallHolding + 1, "holdings of ฿5.00 and ฿10,000,000.00: \(smallHolding) pt, \(largeHolding) pt"
+        )
+    }
+
     // MARK: Order ticket
 
     @Test func anEstimateOfMillionsOfBahtIsNotBrokenAtTheLargestTextSize() async throws {

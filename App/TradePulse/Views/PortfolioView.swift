@@ -179,6 +179,7 @@ struct PositionRowView: View {
         VStack(alignment: alignment, spacing: 2) {
             Text(valueText)
                 .font(.subheadline.weight(.semibold).monospacedDigit())
+                .amountOnOneLine()
             Text("last \(lastText)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
