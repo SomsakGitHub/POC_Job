@@ -12,7 +12,7 @@
     "rateMultiplier": 1,
     "stress": false
   },
-  "startedAt": "2026-11-26T05:01:35Z",
-  "cpuIdlePercentBeforeRun": 70.52,
-  "cpuIdlePercentAfterRun": 86.30
+  "startedAt": "2026-11-26T07:45:02Z",
+  "cpuIdlePercentBeforeRun": 75.53,
+  "cpuIdlePercentAfterRun": 88.91
 }

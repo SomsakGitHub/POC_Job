@@ -37,7 +37,22 @@ What the columns are:
                      so this is a count of frames, not of symbol updates.
     Display fps      the growth of `frames` (the display link's frames, counted while the app is in the foreground)
                      over the same seconds.
-    p99 in frames    the p99 divided by the time one display frame takes at that Display fps.
+    Samples, p50 / p95 / p99
+                     those of tickToRender: the time from the server's stamp on a frame of the feed to the first display
+                     refresh at or after the moment the frame that holds the tick was prepared or drawn. It is an
+                     estimate worked out from the display link, not a measurement of the GPU or of the screen. It
+                     contains the wait for the next display-link step and the refresh itself, so by construction its
+                     median is about 1.5 frames and its p99 about 2 frames at 60 Hz.
+    p99 in frames    the printed p99 (milliseconds, two decimals) times the printed Display fps, divided by 1,000, to
+                     two decimals: a reader can repeat it from a row of the table.
+    Clamped          how many tickToRender samples were below 0 or above 10 s, and their share of the samples.
+
+The last block of the tables holds the verdicts on the design's two targets. The target for tickToRender is a p99 of at
+most 2 frames, judged on the runs that deliver about 1,000 updates a second or more (release-load10x, release-stress,
+load10x and stress). A printed percentile is the upper edge of a histogram bucket, up to 3.125 % (a factor of 1.03125)
+above the true value, so that verdict has three states: "met" when p99 in frames is at most 2.00, "not met" when p99 in
+frames divided by 1.03125 is above 2.00, and "at the limit" in between. The target for orderSubmitToAck is a p99 of at
+most 50 ms, and its verdict has two states: "met" and "not met".
 """
 
 import difflib
@@ -45,6 +60,7 @@ import glob
 import json
 import os
 import sys
+import textwrap
 
 METRICS = [
     "tickToApp",
@@ -91,6 +107,16 @@ BUILDS = ["Release", "Debug"]
 # The five fields of the lab that a run, and a probe of the feed, are identified by.
 LAB_FIELDS = ("rateMultiplier", "stress", "extraLatencyMs", "jitterMs", "dropUpdates")
 PROBE_FILE = "feed-probe.json"
+
+# The design's two targets and the runs each one is judged on. The tickToRender target is judged on the runs that deliver
+# about 1,000 updates a second or more; the orderSubmitToAck target on the run that sent its orders on loopback with no
+# latency injected. A printed percentile is the upper edge of a histogram bucket, so it is up to 3.125 % (a factor of
+# 1.03125) above the true value.
+TICK_TARGET_FRAMES = 2.0
+ACK_TARGET_MS = 50.0
+BUCKET_SPAN = 1.03125
+TICK_JUDGED = ["release-load10x", "release-stress", "load10x", "stress"]
+ACK_JUDGED = ["orders"]
 
 TABLES_BEGIN = "<!-- tables:begin -->"
 TABLES_END = "<!-- tables:end -->"
@@ -286,6 +312,15 @@ def clamped_cell(summary):
     return "%s (%s)" % (whole(clamped), share(clamped, summary["count"]))
 
 
+def clamped_of_cell(summary):
+    """The clamped count, the sample count it is of and the share, always spelled out (also when none is clamped)."""
+    if summary["count"] == 0:
+        return DASH
+    return "%s of %s (%s)" % (
+        whole(summary["clamped"]), whole(summary["count"]), share(summary["clamped"], summary["count"])
+    )
+
+
 def hitches_cell(line):
     frames, hitches = line["frames"], line["hitches"]
     if frames == 0:
@@ -314,13 +349,41 @@ def lab_cell(run):
     return ", ".join(parts)
 
 
-def p99_in_frames(run):
-    """The p99 of tickToRender in display frames at the run's own frame rate."""
+def p99_frames(run):
+    """The p99 of tickToRender in display frames at the run's own frame rate, as a number. It is worked out from the two
+    figures the table prints (the p99 in milliseconds with two decimals and Display fps with one): their product divided
+    by 1,000, rounded to two decimals, so that a reader can repeat it from a row. None when there is no p99 or no frame
+    rate."""
     p99 = metric_of(run["lines"][-1], "tickToRender")["p99Ns"]
     fps = display_rate(run)
     if p99 is None or not fps:
+        return None
+    return float("%.2f" % (float(ms(p99)) * float(one_decimal(fps)) / 1000.0))
+
+
+def p99_in_frames(run):
+    frames = p99_frames(run)
+    return DASH if frames is None else "%.2f" % frames
+
+
+def tick_verdict(frames):
+    """The verdict on the tickToRender target from the p99 in frames as the table prints it: "met" at 2.00 or less, "not
+    met" when even the lowest true value the printed one can stand for (the figure divided by 1.03125) is above 2.00,
+    and "at the limit" in between, where the true p99 may be on either side of the target."""
+    if frames is None:
         return DASH
-    return "%.1f" % ((p99 / NS_PER_MS) / (1000.0 / fps))
+    if frames <= TICK_TARGET_FRAMES:
+        return "met"
+    if frames / BUCKET_SPAN > TICK_TARGET_FRAMES:
+        return "not met"
+    return "at the limit"
+
+
+def ack_verdict(printed_ms):
+    """The verdict on the orderSubmitToAck target from the printed p99 in milliseconds: two states."""
+    if printed_ms is None:
+        return DASH
+    return "met" if printed_ms <= ACK_TARGET_MS else "not met"
 
 
 def order_cell(summary):
@@ -332,9 +395,12 @@ def order_cell(summary):
     return text
 
 
-def table(header, rows, text_columns=1):
-    """A markdown table; the first `text_columns` columns are left aligned and the others are right aligned."""
+def table(header, rows, text_columns=1, last_is_text=False):
+    """A markdown table; the first `text_columns` columns are left aligned and the others are right aligned, except the
+    last one when `last_is_text` is true (a column of words, such as a verdict)."""
     marks = [" --- "] * text_columns + [" ---: "] * (len(header) - text_columns)
+    if last_is_text:
+        marks[-1] = " --- "
     lines = ["| " + " | ".join(header) + " |", "|" + "|".join(marks) + "|"]
     for row in rows:
         lines.append("| " + " | ".join(row) + " |")
@@ -389,6 +455,77 @@ def build_groups(runs):
     return known + sorted(build for build in present if build not in BUILDS)
 
 
+def paragraph(text):
+    """A paragraph of the generated text, broken into lines of at most 120 characters like the rest of the documents."""
+    return textwrap.wrap(text, width=120, break_long_words=False, break_on_hyphens=False)
+
+
+def verdict_lines(runs):
+    """The verdicts on the two targets, with the rule they follow: the last part of the tables block. An empty list when
+    none of the runs the targets are judged on is in the folder."""
+    tick_runs = [run for run in runs if run["label"] in TICK_JUDGED]
+    ack_runs = [run for run in runs if run["label"] in ACK_JUDGED]
+    if not tick_runs and not ack_runs:
+        return []
+    out = ["### Targets and verdicts", ""]
+    out += paragraph(
+        "The design has two targets. The p99 of `tickToRender` is to be at most 2 frames at about 1,000 updates a second "
+        "or more; it is judged on the 10x and stress runs, the ones that deliver that load. The p99 of `orderSubmitToAck` "
+        "is to be at most 50 ms on loopback; it is judged on the `orders` run."
+    )
+    out += [""] + paragraph(
+        "**The rule.** *p99 in frames* is the printed p99 times the run's printed Display fps, divided by 1,000, to two "
+        "decimals. A printed percentile is the upper edge of a histogram bucket, up to 3.125 % (a factor of 1.03125) "
+        "above the true value. A `tickToRender` verdict therefore has three states: **met** when p99 in frames is at "
+        "most 2.00; **not met** when p99 in frames divided by 1.03125 is above 2.00; **at the limit** in between, where "
+        "the true p99 may be on either side of the target. A row at the limit is not called met. The `orderSubmitToAck` "
+        "verdict has two states: **met** when the printed p99 is at most 50 ms, **not met** when it is above."
+    )
+    out += [""] + paragraph(
+        "**What a verdict on the first target says.** `tickToRender` ends at a display refresh, so it contains the wait "
+        "for the next display-link step and the refresh itself: by construction its median is about 1.5 frames and its "
+        "p99 about 2 frames at 60 Hz, which is where the target is. A run that keeps up with the display therefore "
+        "prints a p99 near 2 frames, a row can land within one bucket of the target (it is then at the limit), and "
+        "\"met\" says that the run kept up with the display, not that it beat the target by a margin."
+    )
+    if tick_runs:
+        header = ["Run", "Build", "Updates/s sent", "p99 (ms)", "p99 in frames", "Clamped", "Verdict"]
+        rows = []
+        for run in tick_runs:
+            render = metric_of(run["lines"][-1], "tickToRender")
+            rows.append([
+                run["label"],
+                build_of(run),
+                DASH if run["probe"] is None else whole(run["probe"]["updatesPerSecond"]),
+                ms(render["p99Ns"]) if render["count"] else DASH,
+                p99_in_frames(run) if render["count"] else DASH,
+                clamped_of_cell(render),
+                tick_verdict(p99_frames(run)) if render["count"] else DASH,
+            ])
+        out += ["", "`tickToRender`, p99 at most 2 frames:", ""]
+        out += table(header, rows, text_columns=2, last_is_text=True) + [""]
+        out += paragraph(
+            "Clamped: how many of the run's `tickToRender` samples were clamped, of how many, and their share. What that "
+            "is, and where it came from, is in \"What `clamped` shows\" in `docs/results/summary.md`."
+        )
+    if ack_runs:
+        header = ["Run", "Build", "Samples", "p99 (ms)", "Verdict"]
+        rows = []
+        for run in ack_runs:
+            ack = metric_of(run["lines"][-1], "orderSubmitToAck")
+            printed = float(ms(ack["p99Ns"])) if ack["count"] and ack["p99Ns"] is not None else None
+            rows.append([
+                run["label"],
+                build_of(run),
+                DASH if ack["count"] == 0 else whole(ack["count"]),
+                DASH if printed is None else ms(ack["p99Ns"]),
+                ack_verdict(printed),
+            ])
+        out += ["", "`orderSubmitToAck`, p99 at most 50 ms:", ""]
+        out += table(header, rows, text_columns=2, last_is_text=True)
+    return out
+
+
 def tables_text(runs):
     """The block that goes between <!-- tables:begin --> and <!-- tables:end -->."""
     out = []
@@ -403,6 +540,9 @@ def tables_text(runs):
         out += ["### " + title, ""] + tick_table(chosen) + [""]
     out += ["### Order path, every run", "", "Each cell: the number of samples, then p50 / p95 / p99 in milliseconds.", ""]
     out += order_table(runs)
+    verdicts = verdict_lines(runs)
+    if verdicts:
+        out += [""] + verdicts
     return "\n".join(out) + "\n"
 
 
