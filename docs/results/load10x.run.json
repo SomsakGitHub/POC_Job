@@ -1,0 +1,18 @@
+{
+  "label": "load10x",
+  "build": "Debug",
+  "device": "iPhone 18 Pro",
+  "os": "27.2",
+  "seconds": 30,
+  "symbols": 12,
+  "lab": {
+    "dropUpdates": false,
+    "extraLatencyMs": 0,
+    "jitterMs": 0,
+    "rateMultiplier": 10,
+    "stress": false
+  },
+  "startedAt": "2026-11-26T07:48:18Z",
+  "cpuIdlePercentBeforeRun": 84.99,
+  "cpuIdlePercentAfterRun": 92.37
+}

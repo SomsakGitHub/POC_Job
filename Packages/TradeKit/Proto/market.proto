@@ -1,0 +1,11 @@
+syntax = "proto3";
+package tp;
+message Candle { int64 open_time_ms = 1; int64 open = 2; int64 high = 3; int64 low = 4; int64 close = 5; int64 volume = 6; }
+message SymbolUpdate {
+  uint32 symbol_id = 1;
+  uint64 seq = 2;                       // +1 per update sent on this connection for this symbol
+  int64 last = 3; int64 bid = 4; int64 ask = 5; int64 bid_qty = 6; int64 ask_qty = 7; int64 day_volume = 8;
+  Candle candle_1s = 9; Candle candle_1m = 10; Candle candle_5m = 11;   // current candles (server-aggregated)
+  int64 event_ns = 12;                  // when the simulator produced this state
+}
+message MarketFrame { int64 server_send_ns = 1; uint64 frame_seq = 2; repeated SymbolUpdate updates = 3; }  // empty updates = heartbeat

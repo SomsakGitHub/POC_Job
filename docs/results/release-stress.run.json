@@ -1,0 +1,18 @@
+{
+  "label": "release-stress",
+  "build": "Release",
+  "device": "iPhone 18 Pro",
+  "os": "27.2",
+  "seconds": 30,
+  "symbols": 12,
+  "lab": {
+    "dropUpdates": false,
+    "extraLatencyMs": 0,
+    "jitterMs": 0,
+    "rateMultiplier": 1,
+    "stress": true
+  },
+  "startedAt": "2026-11-26T07:53:29Z",
+  "cpuIdlePercentBeforeRun": 78.88,
+  "cpuIdlePercentAfterRun": 89.87
+}

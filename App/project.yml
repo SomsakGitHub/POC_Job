@@ -1,0 +1,69 @@
+name: TradePulse
+options:
+  bundleIdPrefix: dev.tradepulse.poc
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+packages:
+  TradeKit:
+    path: ../Packages/TradeKit
+targets:
+  TradePulse:
+    type: application
+    platform: iOS
+    sources:
+      - TradePulse
+    dependencies:
+      - package: TradeKit
+        product: TradeNetworking
+      - package: TradeKit
+        product: Contracts
+      - package: TradeKit
+        product: TradeCore
+    info:
+      path: TradePulse/Info.plist
+      properties:
+        CFBundleDisplayName: TradePulse
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tradepulse.poc.TradePulse
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: false
+        # Below iOS 26 the app links libswiftCompatibilitySpan.dylib, which the iOS 18 runtimes do not have, so it has
+        # to be in the app. The step that copies the Swift libraries leaves it out unless it is told to bring it:
+        # ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES does not make it.
+        OTHER_SWIFT_STDLIB_TOOL_FLAGS: "--back-deploy-swift-span"
+  TradePulseTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - TradePulseTests
+    dependencies:
+      - target: TradePulse
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tradepulse.poc.TradePulseTests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: true
+schemes:
+  TradePulse:
+    build:
+      targets:
+        TradePulse: all
+        TradePulseTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - TradePulseTests

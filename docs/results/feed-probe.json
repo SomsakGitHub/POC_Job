@@ -1,0 +1,87 @@
+[
+  {
+    "frames": 782,
+    "framesPerSecond": 78.3,
+    "heartbeats": 0,
+    "lab": {
+      "dropUpdates": false,
+      "extraLatencyMs": 0,
+      "jitterMs": 0,
+      "rateMultiplier": 1,
+      "stress": false
+    },
+    "seconds": 9.99,
+    "symbols": 12,
+    "updates": 2104,
+    "updatesPerFrame": 2.69,
+    "updatesPerSecond": 210.6
+  },
+  {
+    "frames": 844,
+    "framesPerSecond": 84.5,
+    "heartbeats": 0,
+    "lab": {
+      "dropUpdates": false,
+      "extraLatencyMs": 0,
+      "jitterMs": 0,
+      "rateMultiplier": 4.2,
+      "stress": false
+    },
+    "seconds": 9.99,
+    "symbols": 12,
+    "updates": 6332,
+    "updatesPerFrame": 7.5,
+    "updatesPerSecond": 633.6
+  },
+  {
+    "frames": 856,
+    "framesPerSecond": 85.6,
+    "heartbeats": 0,
+    "lab": {
+      "dropUpdates": false,
+      "extraLatencyMs": 0,
+      "jitterMs": 0,
+      "rateMultiplier": 10,
+      "stress": false
+    },
+    "seconds": 10.0,
+    "symbols": 12,
+    "updates": 9214,
+    "updatesPerFrame": 10.76,
+    "updatesPerSecond": 921.8
+  },
+  {
+    "frames": 1672,
+    "framesPerSecond": 167.2,
+    "heartbeats": 0,
+    "lab": {
+      "dropUpdates": false,
+      "extraLatencyMs": 0,
+      "jitterMs": 0,
+      "rateMultiplier": 1,
+      "stress": true
+    },
+    "seconds": 10.0,
+    "symbols": 12,
+    "updates": 18939,
+    "updatesPerFrame": 11.33,
+    "updatesPerSecond": 1894.0
+  },
+  {
+    "frames": 47,
+    "framesPerSecond": 4.7,
+    "heartbeats": 0,
+    "lab": {
+      "dropUpdates": false,
+      "extraLatencyMs": 200,
+      "jitterMs": 0,
+      "rateMultiplier": 1,
+      "stress": false
+    },
+    "seconds": 9.91,
+    "symbols": 12,
+    "updates": 553,
+    "updatesPerFrame": 11.77,
+    "updatesPerSecond": 55.8
+  }
+]
