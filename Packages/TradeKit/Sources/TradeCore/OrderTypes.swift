@@ -13,7 +13,8 @@ public enum OrderType: Int32, Sendable {
     case limit = 2
 }
 
-/// Where an order is in its life. `unknown` is for a state this build does not recognise.
+/// Where an order is in its life. `unknown` is for a state this build does not recognise, and also the status of a
+/// submit whose answer was lost.
 public enum OrderStatus: Sendable {
     case pending
     case accepted

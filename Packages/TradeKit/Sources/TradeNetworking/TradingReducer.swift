@@ -32,8 +32,8 @@ import TradeCore
 ///   position of 0 or less removes the entry) and adds a ledger row at the front, once per ledger sequence number.
 /// - **Accounts.** A snapshot with no epoch is ignored, and so is one of the state's epoch that is older than the
 ///   state (its `lastEventSeq` is lower). One of a different epoch is an epoch change. Otherwise cash and positions
-///   are replaced (only quantities above 0 are kept) and, with `adoptEventSeq`, so is `lastEventSeq`; the orders and
-///   the ledger are never touched.
+///   are replaced (only quantities above 0 are kept) and, with `adoptEventSeq`, so is `lastEventSeq`. The orders and
+///   the ledger of the same epoch are never touched; a snapshot of another epoch empties them first.
 /// - **Clear.** Everything is emptied as at launch, except that `epochChanges` is kept.
 public enum TradingReducer {
     /// Applies `action` to `state`.
@@ -195,7 +195,8 @@ private extension TradingState {
 
     // MARK: Accounts
 
-    /// A snapshot replaces cash and positions, and leaves the orders and the ledger to the event log.
+    /// A snapshot replaces cash and positions, and leaves the orders and the ledger to the event log. The orders and
+    /// the ledger of the same epoch are never touched; a snapshot of another epoch empties them first.
     mutating func applyAccount(_ account: AccountDTO, adoptEventSeq: Bool) {
         guard !account.epoch.isEmpty else { return }
         let isNewEpoch = epoch != nil && epoch != account.epoch
