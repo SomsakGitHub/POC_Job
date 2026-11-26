@@ -103,17 +103,50 @@ RUNS_END = "<!-- runs:end -->"
 # --- Reading ---------------------------------------------------------------------------------------------------------
 
 
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def check_line(path, number, line):
+    """Stops with a message, not a traceback, when a line lacks something the tables are made from: t, frames and
+    hitches as numbers, and each of the six metrics with its count, its clamped count and its three percentile keys."""
+    where = "%s line %d" % (path, number)
+    if not isinstance(line, dict):
+        raise SystemExit("%s is not a JSON object" % where)
+    for key in ("t", "frames", "hitches"):
+        if not is_number(line.get(key)):
+            raise SystemExit("%s has no number called %s" % (where, key))
+    metrics = line.get("metrics")
+    if not isinstance(metrics, dict):
+        raise SystemExit("%s has no metrics" % where)
+    for name in METRICS:
+        metric = metrics.get(name)
+        if not isinstance(metric, dict):
+            raise SystemExit("%s has no metric %s" % (where, name))
+        for key in ("count", "clamped"):
+            if not is_number(metric.get(key)):
+                raise SystemExit("%s: the metric %s has no number called %s" % (where, name, key))
+        for key in ("p50Ns", "p95Ns", "p99Ns"):
+            if key not in metric or not (metric[key] is None or is_number(metric[key])):
+                raise SystemExit("%s: the metric %s has no %s (a number or null)" % (where, name, key))
+
+
 def read_json_lines(path):
-    """Every JSON line of a .jsonl file, in order."""
+    """Every JSON line of a .jsonl file, in order, each one checked. A file with no line at all stops the script too: a
+    result that is empty must not drop out of the tables unseen."""
     lines = []
     with open(path, encoding="utf-8") as handle:
         for number, text in enumerate(handle, start=1):
             if not text.strip():
                 continue
             try:
-                lines.append(json.loads(text))
+                line = json.loads(text)
             except ValueError as error:
                 raise SystemExit("%s line %d is not JSON: %s" % (path, number, error))
+            check_line(path, number, line)
+            lines.append(line)
+    if not lines:
+        raise SystemExit("%s has no JSON lines: it is not a result" % path)
     return lines
 
 
@@ -123,7 +156,19 @@ def read_record(folder, label):
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as handle:
-        return json.load(handle)
+        try:
+            record = json.load(handle)
+        except ValueError as error:
+            raise SystemExit("%s is not JSON: %s" % (path, error))
+    if not isinstance(record, dict) or not isinstance(record.get("lab"), dict):
+        raise SystemExit("%s has no lab settings" % path)
+    for key in LAB_FIELDS:
+        if key not in record["lab"]:
+            raise SystemExit("%s has no lab setting called %s" % (path, key))
+    for key in ("build", "seconds", "symbols", "startedAt"):
+        if key not in record:
+            raise SystemExit("%s has no field called %s" % (path, key))
+    return record
 
 
 def lab_key(lab):
@@ -147,10 +192,9 @@ def load_runs(folder):
     for path in sorted(glob.glob(os.path.join(folder, "*.jsonl"))):
         label = os.path.basename(path)[: -len(".jsonl")]
         lines = read_json_lines(path)
-        if lines:
-            record = read_record(folder, label)
-            found = probe.get(lab_key(record["lab"])) if record else None
-            runs.append({"label": label, "lines": lines, "record": record, "probe": found})
+        record = read_record(folder, label)
+        found = probe.get(lab_key(record["lab"])) if record else None
+        runs.append({"label": label, "lines": lines, "record": record, "probe": found})
     runs.sort(key=lambda run: sort_key(run["label"]))
     return runs
 

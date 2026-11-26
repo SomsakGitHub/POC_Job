@@ -20,15 +20,20 @@
 #      seconds after it starts and one more every five seconds. Every line is cumulative since the launch, so the LAST
 #      line of a file is the result of the run. Every run starts from a fresh launch: the clock-offset estimate and
 #      the first connection are part of it.
-#   4. Keeps the lines that are JSON, checks that each one parses and has the expected shape, and writes them to
+#   4. Keeps the lines that are JSON, checks that each one parses and has the expected shape (t, frames and hitches, and
+#      the six metrics, each with its count, its clamped count and its three percentiles), and writes them to
 #      docs/results/<label>.jsonl, next to docs/results/<label>.run.json, a small record of the settings and the build
 #      the run used (Scripts/summarize.py reads both).
 #
 # However the script ends, also after a failure or an interrupt, it terminates the app and sets the lab back to its
 # defaults. The lab's settings live in the server process, and a run that left them changed would spoil the next one.
 #
-# Exit codes: 0 done; 1 the run failed (fewer than 5 JSON lines, the app exited early, a line that is not JSON);
-# 2 refused before anything was changed (wrong arguments, no server, no simulator, no app).
+# A run that fails writes no result: docs/results is left as it was, and an earlier result of the same label stays.
+# The script ending the app itself after <seconds> is the normal end of a run. An app that has gone before that, for
+# whatever reason, is a failed run however many lines it had printed.
+#
+# Exit codes: 0 done; 1 the run failed (the app exited before the <seconds> were over, fewer than 5 JSON lines, a line
+# that is not a latency line); 2 refused before anything was changed (wrong arguments, no server, no simulator, no app).
 
 set -eu -o pipefail
 
@@ -37,6 +42,8 @@ DEVICE_NAME="iPhone 18 Pro"
 SERVER_URL="http://127.0.0.1:18080"
 MIN_LINES=5
 LAB_DEFAULTS='{"rateMultiplier":1,"stress":false,"extraLatencyMs":0,"jitterMs":0,"dropUpdates":false}'
+# The metrics every line of the app's output holds, in the order it prints them.
+METRIC_NAMES='["tickToApp","tickToApplied","tickToRender","orderSubmitToAck","orderServerProcessing","orderSubmitToFill"]'
 
 SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
 REPO_ROOT="$(dirname "$(dirname "$SCRIPT_PATH")")"
@@ -49,6 +56,7 @@ OS_VERSION=""
 BUILD=""
 LAB_TOUCHED=0
 LAUNCH_PID=""
+APP_EXITED_AT=""
 CONFIRMED=""
 LABEL=""
 RATE=""
@@ -242,6 +250,7 @@ stop_app() {
 }
 
 # Launches the app with its console attached to a file, waits DURATION seconds (or until the app exits) and terminates it.
+# When the app is gone before the DURATION seconds are over, APP_EXITED_AT holds the seconds that had passed.
 run_app() {
   local raw="$WORK_DIR/console.out" err="$WORK_DIR/console.err" elapsed=0 waited=0
   stop_app
@@ -254,7 +263,8 @@ run_app() {
     sleep 1
     elapsed=$((elapsed + 1))
     if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
-      say "the app exited after $elapsed s, before the run was over"
+      APP_EXITED_AT="$elapsed"
+      say "the app exited after $elapsed s, before the run's $DURATION s were over"
       break
     fi
   done
@@ -276,14 +286,20 @@ run_app() {
 
 # --- The result ---------------------------------------------------------------------------------------------------------
 
-# Keeps the lines that start with '{' (simctl adds a line of its own that is not JSON) and checks every one of them.
+# Keeps the lines that start with '{' (simctl adds a line of its own that is not JSON) and checks every one of them: t,
+# frames and hitches are numbers, and metrics holds each of the six metrics with a count, a clamped count and the three
+# percentile keys (a percentile is null while the metric has no samples). Scripts/summarize.py reads exactly these.
 collect_lines() {
   local lines="$WORK_DIR/lines.jsonl" number=0 line
   grep '^{' "$RAW_OUTPUT" >"$lines" || true
   while IFS= read -r line || [ -n "$line" ]; do
     number=$((number + 1))
-    if ! echo "$line" | jq -e '(.t | type == "number") and (.metrics | type == "object") and (.frames | type == "number")' \
-        >/dev/null 2>&1; then
+    if ! echo "$line" | jq -e --argjson names "$METRIC_NAMES" '
+        (.t | type == "number") and (.frames | type == "number") and (.hitches | type == "number")
+        and (.metrics | type == "object")
+        and (. as $line | $names | all(.[]; . as $name | $line.metrics[$name]
+          | type == "object" and (.count | type == "number") and (.clamped | type == "number")
+            and has("p50Ns") and has("p95Ns") and has("p99Ns")))' >/dev/null 2>&1; then
       fail "line $number of the app's output is not a latency line: $line"
     fi
   done <"$lines"
@@ -346,6 +362,18 @@ main() {
   run_app
   IDLE_AFTER="$(cpu_idle_percent)"
   say "CPU idle before the run: $IDLE_BEFORE %, after it: $IDLE_AFTER % (whole machine, from top)"
+  if [ -n "$APP_EXITED_AT" ]; then
+    # The app went away before the script ended it, so what it printed is not a run of $DURATION s whatever its length.
+    local captured
+    captured="$(grep -c '^{' "$RAW_OUTPUT" || true)"
+    echo "measure.sh: the app exited after $APP_EXITED_AT s of the $DURATION s run (latency lines captured: $captured);" \
+      "the run is not recorded: docs/results/$LABEL.jsonl and docs/results/$LABEL.run.json are not written" >&2
+    if [ -s "$RAW_ERRORS" ]; then
+      echo "measure.sh: what the app wrote to its error output:" >&2
+      head -n 20 "$RAW_ERRORS" >&2
+    fi
+    exit 1
+  fi
   collect_lines
 
   if [ "$LINE_COUNT" -lt "$MIN_LINES" ]; then

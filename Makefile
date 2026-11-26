@@ -93,14 +93,15 @@ demo:
 	@echo "demo: TradePulse is running on $(SIM_NAME) against the server on 127.0.0.1:18080."
 	@echo "demo: open the Simulator app to watch it. Stop the server and the app with: make stop"
 
-# Stop what `make demo` started: the exchange server whose process id is in build/server.pid (only if that process is
-# an ExchangeServer) and the app. A server that was already running before `make demo` is left alone.
+# Stop what `make demo` started: the exchange server whose process id is in build/server.pid (only if that process runs
+# an executable called ExchangeServer, so that a reused process id is not taken for it) and the app. A server that was
+# already running before `make demo` is left alone.
 stop:
 	@if [ -f $(SERVER_PID) ]; then \
 		pid=$$(cat $(SERVER_PID)); \
 		if ! kill -0 $$pid 2>/dev/null; then \
 			echo "stop: process $$pid from $(SERVER_PID) is not running any more"; \
-		elif ps -p $$pid -o command= | grep -q ExchangeServer; then \
+		elif [ "$$(basename "$$(ps -p $$pid -o comm=)")" = ExchangeServer ]; then \
 			kill $$pid && echo "stop: exchange server $$pid stopped"; \
 		else \
 			echo "stop: process $$pid from $(SERVER_PID) is not an exchange server, so it is left alone"; \
