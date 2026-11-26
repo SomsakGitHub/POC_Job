@@ -54,11 +54,12 @@ final class FramePump {
     @ObservationIgnored private var previousTimestamp: CFTimeInterval?
     /// The stamp of the newest frame: the first display refresh at or after the moment its step ran, on the client's
     /// wall clock; nil before the first frame. It is one point of the grid of refreshes, the others being
-    /// `lastPeriodNs` apart from it, before and after.
+    /// `lastPeriodNs` apart from it, before and after. When the link fired after its own target and reported no usable
+    /// frame length, it is the clock of that step instead.
     @ObservationIgnored private var lastPresentNs: Int64?
     /// How long a frame is meant to take as the newest step reported it, in nanoseconds: the distance between two
-    /// refreshes of the grid that `lastPresentNs` is one point of. It is 0 or less when the link did not say, and then
-    /// the grid is not known.
+    /// refreshes of the grid that `lastPresentNs` is one point of. It is 0 or less when the link reported a duration
+    /// that is not a positive finite number, and then the grid is not known.
     @ObservationIgnored private var lastPeriodNs: Int64 = 0
 
     /// Whether the display link is running.
@@ -88,13 +89,16 @@ final class FramePump {
 
     /// Starts the display link, on the main run loop in the common modes so that it also fires while a list scrolls.
     /// Starting a pump that runs does nothing. The first frame after a start has no interval, so the time the app
-    /// spent stopped is never counted as a hitch.
+    /// spent stopped is never counted as a hitch. A frame applied while the pump was stopped was never drawn when it
+    /// arrived, so its render stamp is dropped: the first step after the start still moves `tick` for it, and records
+    /// no render time for it.
     func start() {
         guard displayLink == nil else { return }
         let link = makeLink(FrameLinkTarget(pump: self), #selector(FrameLinkTarget.fire(_:)))
         link.add(to: .main, forMode: .common)
         displayLink = link
         previousTimestamp = nil
+        marketState.discardPendingRender()
     }
 
     /// Ends the display link. Stopping a pump that is stopped does nothing.
@@ -114,8 +118,9 @@ final class FramePump {
     /// The frame is on screen at the first refresh at or after the clock of this call, on the grid that the link
     /// describes. In the normal case that is the target the link reports. A link that fires after its own target has
     /// a target that has already gone by, and the frame is then on screen at the first refresh after the target that
-    /// is not before the clock, found a `duration` at a time. A `duration` that is not positive leaves no grid to look
-    /// on, and the stamp is then the clock. The latency that records is the time from the server's stamp to that
+    /// is not before the clock, found a `duration` at a time. A `duration` that is not a positive finite number leaves
+    /// no grid to look on: a link that fires on time keeps its target as the stamp whatever the duration, and a late
+    /// one is stamped with the clock. The latency that records is the time from the server's stamp to that
     /// refresh. It is an estimate made from the display link and not a measurement of the GPU, and it is never
     /// earlier than the clock was when it was taken.
     func step(timestamp: CFTimeInterval, targetTimestamp: CFTimeInterval, duration: CFTimeInterval) {
@@ -147,8 +152,9 @@ final class FramePump {
     /// They are stamped with the first refresh at or after the clock of this call, on the grid of the newest step. That
     /// is the stamp of the step when the draw ended before it, which is the normal case. A frame that is drawn after
     /// it is shown at the next refresh and not at one that has gone by, so a draw that ended after it is stamped with
-    /// the first refresh after it that is not before the clock. With no step yet, or a step that did not say how long
-    /// a frame is meant to take, the grid is not known and the stamp is the clock. Like the stamp of a step it is an
+    /// the first refresh after it that is not before the clock. With no step yet the stamp is the clock. After a step
+    /// that reported no usable frame length the grid is not known: a draw that ends at or before that step's stamp keeps the
+    /// stamp, and one that ends after it is stamped with the clock. Like the stamp of a step it is an
     /// estimate made from the display link and not a measurement of the GPU, and it is never earlier than the clock
     /// was when it was taken.
     func notifyRendered(drawNs: Int64) {

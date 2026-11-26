@@ -100,6 +100,13 @@ public final class MarketState: Sendable {
         latency.record(.tickToRender, nanos: Self.sample(clientNs: atNs, offsetNs: offsetNs, serverSendNs: stamp))
     }
 
+    /// Forgets the stamp of the frames applied since the last draw, without recording anything, for a screen that was
+    /// not drawing while they arrived. The next `markRendered` then measures only frames applied after this call.
+    /// The snapshots and the version are left as they are, so the new prices are still shown.
+    public func discardPendingRender() {
+        storage.withLock { _ = $0.takePendingRenderStamp() }
+    }
+
     /// A number that goes up by one for every `apply` that changed a snapshot, however many updates it carried, and
     /// for every `reset()`. It never goes back, so a screen that remembers the version it drew can tell with one
     /// comparison whether there is anything new.

@@ -199,6 +199,65 @@ struct FramePumpTests {
         #expect(rig.latency.summary(.tickToRender).clamped == 0)
     }
 
+    @Test func aFrameAppliedWhileThePumpWasStoppedIsNotMeasuredWhenItStartsAgain() {
+        let links = StubLinks()
+        let rig = PumpRig(nowNs: 5_000_000_000, mediaNow: 100.0, makeLink: { links.make($0, $1) })
+        rig.pump.start()
+        defer { rig.pump.stop() }
+        rig.apply(seq: 1, sendNs: 4_990_000_000)
+        rig.pump.step(timestamp: 100.0, targetTimestamp: 100.016, duration: 0.016)
+        rig.pump.stop()
+
+        // A frame arrives after the last step, and the screen stops drawing for half a minute.
+        rig.apply(seq: 2, sendNs: 4_995_000_000)
+        rig.clock.set(35_000_000_000)
+        rig.media.set(130.0)
+        rig.pump.start()
+        rig.pump.step(timestamp: 130.0, targetTimestamp: 130.016, duration: 0.016)
+
+        // The frame that was never drawn is not measured against the first refresh after the return: the one sample
+        // is the frame of the first step, and nothing is clamped.
+        #expect(rig.latency.summary(.tickToRender) == summary(of: [26_000_000]))
+        #expect(rig.latency.summary(.tickToRender).clamped == 0)
+        // The new prices are still shown: the tick moves for them.
+        #expect(rig.pump.tick == 2)
+    }
+
+    @Test func aFrameAppliedAfterAStartIsMeasuredAtTheNextStep() {
+        let links = StubLinks()
+        let rig = PumpRig(nowNs: 5_000_000_000, mediaNow: 100.0, makeLink: { links.make($0, $1) })
+        rig.pump.start()
+        defer { rig.pump.stop() }
+        rig.apply(seq: 1, sendNs: 4_990_000_000)
+        rig.pump.step(timestamp: 100.0, targetTimestamp: 100.016, duration: 0.016)
+
+        #expect(rig.latency.summary(.tickToRender) == summary(of: [26_000_000]))
+        #expect(rig.pump.tick == 1)
+    }
+
+    @Test func aDrawAfterAStartAndBeforeAnyStepIsNeverStampedBeforeTheClock() {
+        let links = StubLinks()
+        let rig = PumpRig(nowNs: 5_000_000_000, mediaNow: 100.0, makeLink: { links.make($0, $1) })
+        rig.pump.start()
+        defer { rig.pump.stop() }
+        // The last step before the stop is due at 5.016 s, on refreshes 16 ms apart.
+        rig.apply(seq: 1, sendNs: 4_990_000_000)
+        rig.pump.step(timestamp: 100.0, targetTimestamp: 100.016, duration: 0.016)
+        rig.pump.stop()
+
+        // Half a minute later the pump starts again, and a frame is applied and drawn before the first step.
+        rig.clock.set(35_000_000_000)
+        rig.media.set(130.0)
+        rig.pump.start()
+        rig.apply(seq: 2, sendNs: 34_990_000_000)
+        rig.pump.notifyRendered(drawNs: 1_000_000)
+
+        // The draw is stamped with the first refresh of the old grid at or after the clock, which is 35.000 s itself:
+        // 10 ms after the server's stamp, and never a refresh that had gone by.
+        #expect(rig.latency.summary(.tickToRender) == summary(of: [26_000_000, 10_000_000]))
+        #expect(rig.latency.summary(.tickToRender).clamped == 0)
+    }
+
     @Test func notifyRenderedBeforeAnyStepUsesNow() {
         let rig = PumpRig(nowNs: 5_000_000_000, mediaNow: 100.0)
         rig.apply(seq: 1, sendNs: 4_990_000_000)

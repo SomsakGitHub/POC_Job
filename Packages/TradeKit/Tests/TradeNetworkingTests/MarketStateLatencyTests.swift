@@ -288,4 +288,23 @@ extension MarketStateTests {
         // 30 + 10 - 5; the offset of the apply, which was 0, would have made it 25.
         #expect(rig.latency.summary(.tickToRender) == summary(of: [35], metric: .tickToRender))
     }
+
+    /// A frame applied while nothing was drawing is dropped, unmeasured, and the market it changed stays changed.
+    @Test func discardPendingRenderLeavesNothingToMeasureAndTheVersionAsItWas() {
+        let rig = StateRig()
+        rig.apply(symbolUpdate(seq: 1), sendNs: 100, receivedAtNs: 120)
+        let version = rig.state.version
+
+        rig.state.discardPendingRender()
+        rig.state.markRendered(atNs: 30_000_000_000)
+
+        #expect(rig.count(.tickToRender) == 0)
+        #expect(rig.state.version == version)
+        #expect(rig.state.snapshot(1) != nil)
+
+        // The next frame is measured as usual.
+        rig.apply(symbolUpdate(seq: 2), sendNs: 200, receivedAtNs: 220)
+        rig.state.markRendered(atNs: 250)
+        #expect(rig.latency.summary(.tickToRender) == summary(of: [50], metric: .tickToRender))
+    }
 }
